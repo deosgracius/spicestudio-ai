@@ -1,0 +1,20 @@
+const fs=require('fs');
+const ctx=new Proxy({},{get:(t,k)=>k==='measureText'?()=>({width:10}):()=>{},set:()=>true});
+function el(){const e={style:{},dataset:{},classList:{add(){},remove(){},toggle(){},contains:()=>false},addEventListener(){},appendChild(){},removeChild(){},getContext:()=>ctx,getBoundingClientRect:()=>({left:0,top:0,width:800,height:600}),querySelectorAll:()=>[],focus(){},remove(){},clientWidth:800,clientHeight:240,value:'',textContent:''};e.lastChild={remove(){}};e.parentElement={clientWidth:800,clientHeight:240};Object.defineProperty(e,'innerHTML',{get(){return'';},set(){}});return e;}
+global.document={getElementById:()=>el(),createElement:()=>el(),querySelectorAll:()=>[],addEventListener(){},body:el()};
+global.window={addEventListener(){},location:{href:''}};global.localStorage={getItem:()=>null,setItem(){}};global.fetch=async()=>({json:async()=>({})});global.alert=()=>{};
+let js=fs.readFileSync('app_extract.js','utf8');
+js+='\n;global.__S=S;global.__try=tryConstructIntent;global.__conn=getConnectivity;global.__runSim=runSim;';
+(0,eval)(js);
+const S=global.__S;
+let pass=0,fail=0;const chk=(c,m,d)=>{console.log((c?'PASS':'FAIL')+'  '+m+(d?' — '+d:''));c?pass++:fail++;};
+const handled=global.__try('Make a full-wave rectifier');
+chk(handled===true,'copilot handled "Make a full-wave rectifier" deterministically');
+chk(S.comps.length===8,'placed 8 parts (VAC+4D+C+R+GND)',S.comps.map(c=>c.type).join(','));
+const conn=global.__conn();
+const names=conn.nets.map(n=>n.name).sort().join(',');
+chk(['0','ACn','ACp','OUTp'].every(n=>names.includes(n)),'net labels created 4 nodes',names);
+global.__runSim('tran');
+const vo=S.sim.trace['OUTp'];const last=vo.slice(-300);const mx=Math.max(...last);
+chk(mx>7.5&&mx<9.5,'transient: OUTp rectified DC ~8.6V',mx.toFixed(2)+'V');
+console.log('\n'+pass+' passed, '+fail+' failed');process.exit(fail?1:0);

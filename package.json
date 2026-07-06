@@ -1,0 +1,13 @@
+{
+  "name": "spicestudio-ai",
+  "version": "0.1.0",
+  "description": "Browser-native SPICE circuit simulator + schematic editor with an AI copilot — a single-file EDA tool.",
+  "scripts": {
+    "test": "node tests/run.js"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^0.1.44"
+  },
+  "license": "MIT",
+  "private": false
+}

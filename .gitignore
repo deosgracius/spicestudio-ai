@@ -1,0 +1,5 @@
+node_modules/
+tests/app_extract.js
+*.bak
+spicestudio_part*.txt
+.DS_Store
