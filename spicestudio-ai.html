@@ -975,6 +975,8 @@ function parseStructured(q){
   const typeOf=(name,val)=>{const v=(val||'').toLowerCase();
     if(/nmos/.test(v))return['NMOS',''];if(/pmos/.test(v))return['PMOS',''];if(/npn/.test(v))return['NPN',''];if(/pnp/.test(v))return['PNP',''];
     if(/op[- ]?amp|opamp/.test(v))return['OPAMP',''];
+    if(/sine/.test(v))return['VAC',val];if(/ac[_ ]?source|^ac$/.test(v))return['VAC','sine 10 60'];   // AC source (default 10V 60Hz if unspecified)
+    if(/pulse/.test(v))return['VPULSE',val];if(/diode/.test(v))return['D',''];
     const c=name[0].toUpperCase();return({R:['R',val],C:['C',val],L:['L',val],V:['V',val],I:['I',val],D:['D',''],M:['NMOS',''],Q:['NPN','']})[c]||['R',val];};
   q.split(/\r?\n/).forEach(line=>{line=line.trim();
     if(/^components\s*:/i.test(line)){section='c';return;}if(/^nets\s*:/i.test(line)){section='n';return;}if(!line)return;
