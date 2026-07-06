@@ -916,6 +916,9 @@ function buildFromSpec(spec){
   (spec.nets||[]).forEach(n=>{const nm=gnd(n.name);(n.connect||[]).forEach(cn=>{const c=byRef[cn[0]];if(!c)return;
     let idx=(typeof cn[1]==='number')?cn[1]:pinCoords(c).findIndex(p=>p.name===cn[1]);if(idx<0)idx=parseInt(cn[1])||0;
     (netPins[nm]=netPins[nm]||[]).push({comp:c,idx});});});
+  // auto-ground a floating source return: a supply/source with one terminal unconnected is referenced to ground
+  const seen={};Object.values(netPins).forEach(a=>a.forEach(pp=>seen[pp.comp.uid+':'+pp.idx]=1));
+  Object.values(byRef).forEach(c=>{if(['V','VAC','VPULSE','I'].includes(c.type))[0,1].forEach(i=>{if(!seen[c.uid+':'+i])(netPins['0']=netPins['0']||[]).push({comp:c,idx:i});});});
   autoRoute(netPins);
   invalidate();draw();
   const a=(spec.analysis||'dc').toLowerCase();runSim(a==='ac'?'ac':(a==='tran'||a==='transient')?'tran':'dc');
