@@ -357,10 +357,12 @@ function mosfet(type,vgs,vds,p){const Kp=p.Kp??2e-5,WL=(p.W??1e-5)/(p.L??1e-6),l
   else{id=0.5*beta*vov*vov*(1+lam*vd);gm=beta*vov*(1+lam*vd);gds=0.5*beta*vov*vov*lam;}
   return{id:s*id,gm,gds:gds+1e-12};}
 // BJT Ebers-Moll (transport form). EFFECTIVE (npn-domain, pre-limited) junction voltages.
-function bjt(vbeEff,vbcEff,p){const Is=p.Is??1e-15,BF=p.BF??100,BR=p.BR??1,Vt=VT;
+function bjt(vbeEff,vbcEff,p){const Is=p.Is??1e-15,BF=p.BF??100,BR=p.BR??1,VAF=p.VAF??Infinity,Vt=VT;
   const f1=Math.exp(vbeEff/Vt),f2=Math.exp(vbcEff/Vt);
-  const ic=Is*((f1-f2)-(f2-1)/BR),ib=Is*((f1-1)/BF+(f2-1)/BR);
-  return{ic,ib,gcf:Is*f1/Vt,gcr:-(Is*f2/Vt)*(1+1/BR),gpi:Is*f1/(BF*Vt)+1e-12,gmu:Is*f2/(BR*Vt)+1e-12};}
+  const icT=Is*((f1-f2)-(f2-1)/BR),ib=Is*((f1-1)/BF+(f2-1)/BR);
+  const early=1+(vbeEff-vbcEff)/VAF,ic=icT*early;                 // Early effect → finite output resistance ro=VAF/Ic
+  const gcfT=Is*f1/Vt,gcrT=-(Is*f2/Vt)*(1+1/BR);
+  return{ic,ib,gcf:gcfT*early+icT/VAF,gcr:gcrT*early-icT/VAF,gpi:Is*f1/(BF*Vt)+1e-12,gmu:Is*f2/(BR*Vt)+1e-12};}
 
 class Circuit{
   constructor(){this.elements=[];}
@@ -448,23 +450,26 @@ class Circuit{
     for(let p=0;p<pts;p++){const f=Math.pow(10,l0+(l1-l0)*p/(pts-1)),w=2*Math.PI*f;
       const A=Array.from({length:size},()=>new Array(size).fill(0).map(()=>cx(0,0)));const z=new Array(size).fill(0).map(()=>cx(0,0));
       const sy=(a,b,y)=>{const ia=NI(a),ib=NI(b);if(ia>=0)A[ia][ia]=cadd(A[ia][ia],y);if(ib>=0)A[ib][ib]=cadd(A[ib][ib],y);if(ia>=0&&ib>=0){A[ia][ib]=csub(A[ia][ib],y);A[ib][ia]=csub(A[ib][ia],y);}};
+      const stC=(r,c,cap)=>{const y=cx(0,w*cap);if(r>=0)A[r][r]=cadd(A[r][r],y);if(c>=0)A[c][c]=cadd(A[c][c],y);if(r>=0&&c>=0){A[r][c]=csub(A[r][c],y);A[c][r]=csub(A[c][r],y);}}; // capacitor jωC between row indices
       for(const e of this.elements){const a=map.get(e.nodes[0]),b=map.get(e.nodes[1]);
         if(e.type==='R')sy(a,b,cx(1/e.value,0));
         else if(e.type==='C')sy(a,b,cx(0,w*e.value));
         else if(e.type==='L')sy(a,b,cdiv(cx(1,0),cx(0,w*e.value)));
-        else if(e.type==='D'){const Is=e.model?.Is??1e-14,nVt=(e.model?.N??1)*VT,vd=gV(e.nodes[0])-gV(e.nodes[1]);sy(a,b,cx((Is/nVt)*Math.exp(Math.min(vd,0.9)/nVt)+1e-12,0));}
+        else if(e.type==='D'){const Is=e.model?.Is??1e-14,nVt=(e.model?.N??1)*VT,vd=gV(e.nodes[0])-gV(e.nodes[1]);const Geq=(Is/nVt)*Math.exp(Math.min(vd,0.9)/nVt)+1e-12;const Cj=(e.model?.CJO??e.model?.CJ??0)+(e.model?.TT??0)*Geq;sy(a,b,cx(Geq,w*Cj));}
         else if(e.type==='M'){const D=NI(map.get(e.nodes[0])),G=NI(map.get(e.nodes[1])),Sn=NI(map.get(e.nodes[2]));
           const {gm,gds}=mosfet(e.model?.type||'nmos',gV(e.nodes[1])-gV(e.nodes[2]),gV(e.nodes[0])-gV(e.nodes[2]),e.model||{});
           if(D>=0)A[D][D]=cadd(A[D][D],cx(gds,0));if(Sn>=0)A[Sn][Sn]=cadd(A[Sn][Sn],cx(gds,0));
           if(D>=0&&Sn>=0){A[D][Sn]=csub(A[D][Sn],cx(gds,0));A[Sn][D]=csub(A[Sn][D],cx(gds,0));}
           if(D>=0){if(G>=0)A[D][G]=cadd(A[D][G],cx(gm,0));if(Sn>=0)A[D][Sn]=csub(A[D][Sn],cx(gm,0));}
-          if(Sn>=0){if(G>=0)A[Sn][G]=csub(A[Sn][G],cx(gm,0));A[Sn][Sn]=cadd(A[Sn][Sn],cx(gm,0));}}
+          if(Sn>=0){if(G>=0)A[Sn][G]=csub(A[Sn][G],cx(gm,0));A[Sn][Sn]=cadd(A[Sn][Sn],cx(gm,0));}
+          const Cgs=e.model?.CGS??e.model?.CGSO??0,Cgd=e.model?.CGD??e.model?.CGDO??0;stC(G,Sn,Cgs);stC(G,D,Cgd);}
         else if(e.type==='Q'){const C=NI(map.get(e.nodes[0])),B=NI(map.get(e.nodes[1])),E=NI(map.get(e.nodes[2]));
           const sq=(e.model?.type==='pnp')?-1:1;
           const {gcf,gcr,gpi,gmu}=bjt(sq*(gV(e.nodes[1])-gV(e.nodes[2])),sq*(gV(e.nodes[1])-gV(e.nodes[0])),e.model||{});
           const ad=(r,c,g)=>{if(r>=0&&c>=0)A[r][c]=cadd(A[r][c],cx(g,0));};
           ad(B,B,gpi+gmu);ad(B,E,-gpi);ad(B,C,-gmu);ad(C,B,gcf+gcr);ad(C,E,-gcf);ad(C,C,-gcr);
-          ad(E,B,-(gpi+gmu+gcf+gcr));ad(E,E,gpi+gcf);ad(E,C,gmu+gcr);}
+          ad(E,B,-(gpi+gmu+gcf+gcr));ad(E,E,gpi+gcf);ad(E,C,gmu+gcr);
+          const gmQ=Math.abs(gcf),Cpi=(e.model?.CJE??0)+(e.model?.TF??0)*gmQ,Cmu=(e.model?.CJC??0);stC(B,E,Cpi);stC(B,C,Cmu);}
         else if(e.type==='V'){const k=bi.get(e),ia=NI(a),ib=NI(b);if(ia>=0){A[ia][k]=cadd(A[ia][k],cx(1,0));A[k][ia]=cadd(A[k][ia],cx(1,0));}if(ib>=0){A[ib][k]=csub(A[ib][k],cx(1,0));A[k][ib]=csub(A[k][ib],cx(1,0));}z[k]=cx(e.ac??0,0);}
         else if(e.type==='E'){const k=bi.get(e),g=e.value;const op=NI(map.get(e.nodes[0])),on=NI(map.get(e.nodes[1])),cp=NI(map.get(e.nodes[2])),cn=NI(map.get(e.nodes[3]));
           if(op>=0){A[op][k]=cadd(A[op][k],cx(1,0));A[k][op]=cadd(A[k][op],cx(1,0));}if(on>=0){A[on][k]=csub(A[on][k],cx(1,0));A[k][on]=csub(A[k][on],cx(1,0));}if(cp>=0)A[k][cp]=csub(A[k][cp],cx(g,0));if(cn>=0)A[k][cn]=cadd(A[k][cn],cx(g,0));}}
@@ -1009,11 +1014,12 @@ function parseSpice(text){
     else if(t==='M'){const mdl=tok[5],mm=models[mdl]||{};const ov={};tok.slice(6).forEach(kv=>{const p=kv.split('=');if(p[0]&&p[1]!==undefined)ov[p[0].trim().toLowerCase()]=parseVal(p[1]);});
       const type=(mm.tn==='PMOS'||/pmos/i.test(mdl))?'pmos':'nmos';const pp=Object.assign({},mm.params||{},ov);
       const model={type};if(pp.vto!==undefined)model.Vto=pp.vto;if(pp.kp!==undefined)model.Kp=pp.kp;if(pp.w!==undefined)model.W=pp.w;if(pp.l!==undefined)model.L=pp.l;if(pp.lambda!==undefined)model.lambda=pp.lambda;
+      if(pp.cgso!==undefined)model.CGSO=pp.cgso;if(pp.cgdo!==undefined)model.CGDO=pp.cgdo;if(pp.cgs!==undefined)model.CGS=pp.cgs;if(pp.cgd!==undefined)model.CGD=pp.cgd;
       parts.push({ref:name,type:type==='pmos'?'PMOS':'NMOS',model});addN(tok[1],name,0);addN(tok[2],name,1);addN(tok[3],name,2);}
     else if(t==='E'){parts.push({ref:name,type:'OPAMP'});addN(tok[3],name,0);addN(tok[4],name,1);addN(tok[1],name,2);} // VCVS/op-amp: E out 0 + - gain
     else if(t==='Q'){const mdl=tok[4],mm=models[mdl]||{};   // Q name C B E MODEL
       const type=(mm.tn==='PNP'||/pnp/i.test(mdl))?'pnp':'npn';const pp=mm.params||{};
-      const model={type};['is','bf','br','vaf'].forEach(k=>{if(pp[k]!==undefined)model[k.toUpperCase()==='IS'?'Is':k.toUpperCase()]=pp[k];});
+      const model={type};['is','bf','br','vaf','tf','cje','cjc'].forEach(k=>{if(pp[k]!==undefined)model[k==='is'?'Is':k==='tf'?'TF':k.toUpperCase()]=pp[k];});
       parts.push({ref:name,type:type==='pnp'?'PNP':'NPN',model});addN(tok[1],name,0);addN(tok[2],name,1);addN(tok[3],name,2);}
   });
   return{parts,nets:Object.entries(nets).map(([name,connect])=>({name,connect})),analysis};

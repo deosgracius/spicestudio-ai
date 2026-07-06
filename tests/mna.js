@@ -88,11 +88,20 @@ function mosfet(type, vgs, vds, p) {
 
 // BJT Ebers-Moll (transport form). Takes EFFECTIVE (npn-domain, pre-limited) junction voltages.
 function bjt(vbeEff, vbcEff, p) {
-  const Is = p.Is ?? 1e-15, BF = p.BF ?? 100, BR = p.BR ?? 1, Vt = VT;
+  const Is = p.Is ?? 1e-15, BF = p.BF ?? 100, BR = p.BR ?? 1, VAF = p.VAF ?? Infinity, Vt = VT;
   const f1 = Math.exp(vbeEff / Vt), f2 = Math.exp(vbcEff / Vt);
-  const ic = Is * ((f1 - f2) - (f2 - 1) / BR);
+  const icT = Is * ((f1 - f2) - (f2 - 1) / BR);       // transport current
   const ib = Is * ((f1 - 1) / BF + (f2 - 1) / BR);
-  return { ic, ib, gcf: Is * f1 / Vt, gcr: -(Is * f2 / Vt) * (1 + 1 / BR), gpi: Is * f1 / (BF * Vt) + 1e-12, gmu: Is * f2 / (BR * Vt) + 1e-12 };
+  const early = 1 + (vbeEff - vbcEff) / VAF;           // Early effect: (1 + Vce/VAF), Vce = Vbe - Vbc
+  const ic = icT * early;
+  const gcfT = Is * f1 / Vt, gcrT = -(Is * f2 / Vt) * (1 + 1 / BR);
+  return {
+    ic, ib,
+    gcf: gcfT * early + icT / VAF,                     // ∂Ic/∂Vbe
+    gcr: gcrT * early - icT / VAF,                     // ∂Ic/∂Vbc  (−icT/VAF ⇒ output conductance go = Ic/VAF)
+    gpi: Is * f1 / (BF * Vt) + 1e-12,
+    gmu: Is * f2 / (BR * Vt) + 1e-12,
+  };
 }
 
 // SPICE junction-voltage limiting — keeps Newton stable AND lets high-Vf parts (LEDs) turn on
@@ -349,11 +358,16 @@ class Circuit {
       const w = 2 * Math.PI * f;
       const A = Array.from({ length: size }, () => new Array(size).fill(0).map(() => ({ re: 0, im: 0 })));
       const z = new Array(size).fill(0).map(() => ({ re: 0, im: 0 }));
-      const sy = (a, b, y) => { // complex admittance
+      const sy = (a, b, y) => { // complex admittance (node numbers)
         const ia = NI(a), ib = NI(b);
         if (ia >= 0) A[ia][ia] = cadd(A[ia][ia], y);
         if (ib >= 0) A[ib][ib] = cadd(A[ib][ib], y);
         if (ia >= 0 && ib >= 0) { A[ia][ib] = csub(A[ia][ib], y); A[ib][ia] = csub(A[ib][ia], y); }
+      };
+      const stC = (r, c, cap) => { // stamp a capacitor jωC between two ROW INDICES
+        const y = { re: 0, im: w * cap };
+        if (r >= 0) A[r][r] = cadd(A[r][r], y); if (c >= 0) A[c][c] = cadd(A[c][c], y);
+        if (r >= 0 && c >= 0) { A[r][c] = csub(A[r][c], y); A[c][r] = csub(A[c][r], y); }
       };
       for (const e of this.elements) {
         const a = map.get(e.nodes[0]), b = map.get(e.nodes[1]);
@@ -364,7 +378,8 @@ class Circuit {
           const Is = e.model?.Is ?? 1e-14, nVt = (e.model?.N ?? 1) * VT;
           const vd = gV(e.nodes[0]) - gV(e.nodes[1]);
           const Geq = (Is / nVt) * Math.exp(Math.min(vd, 0.9) / nVt) + 1e-12;
-          sy(a, b, { re: Geq, im: 0 });
+          const Cj = (e.model?.CJO ?? e.model?.CJ ?? 0) + (e.model?.TT ?? 0) * Geq; // junction + diffusion cap
+          sy(a, b, { re: Geq, im: w * Cj });
         }
         else if (e.type === 'M') { // small-signal gm/gds at the operating point
           const D = NI(map.get(e.nodes[0])), G = NI(map.get(e.nodes[1])), Sn = NI(map.get(e.nodes[2]));
@@ -374,6 +389,8 @@ class Circuit {
           if (D >= 0 && Sn >= 0) { A[D][Sn] = csub(A[D][Sn], { re: gds, im: 0 }); A[Sn][D] = csub(A[Sn][D], { re: gds, im: 0 }); }
           if (D >= 0) { if (G >= 0) A[D][G] = cadd(A[D][G], { re: gm, im: 0 }); if (Sn >= 0) A[D][Sn] = csub(A[D][Sn], { re: gm, im: 0 }); }
           if (Sn >= 0) { if (G >= 0) A[Sn][G] = csub(A[Sn][G], { re: gm, im: 0 }); A[Sn][Sn] = cadd(A[Sn][Sn], { re: gm, im: 0 }); }
+          const Cgs = e.model?.CGS ?? e.model?.CGSO ?? 0, Cgd = e.model?.CGD ?? e.model?.CGDO ?? 0;
+          stC(G, Sn, Cgs); stC(G, D, Cgd); // Cgd is the Miller cap
         }
         else if (e.type === 'Q') { // BJT small-signal at the operating point
           const C = NI(map.get(e.nodes[0])), B = NI(map.get(e.nodes[1])), E = NI(map.get(e.nodes[2]));
@@ -383,6 +400,8 @@ class Circuit {
           ad(B, B, gpi + gmu); ad(B, E, -gpi); ad(B, C, -gmu);
           ad(C, B, gcf + gcr); ad(C, E, -gcf); ad(C, C, -gcr);
           ad(E, B, -(gpi + gmu + gcf + gcr)); ad(E, E, gpi + gcf); ad(E, C, gmu + gcr);
+          const gmQ = Math.abs(gcf), Cpi = (e.model?.CJE ?? 0) + (e.model?.TF ?? 0) * gmQ, Cmu = (e.model?.CJC ?? 0);
+          stC(B, E, Cpi); stC(B, C, Cmu); // Cπ (junction+diffusion) and Cµ (Miller)
         }
         else if (e.type === 'V') {
           const k = branchIdx.get(e); const ia = NI(a), ib = NI(b);
@@ -496,6 +515,36 @@ if (require.main === module) {
     const gain = cabs(r.out.col[0]);   // V(in)=1, so |V(col)| = |Av|
     console.log(`      NPN AC |Av|=${gain.toPrecision(3)} (expect ~130-170)`);
     near(gain, 150, 45, 'Q2 NPN common-emitter voltage gain');
+  }
+
+  // Test Q3: BJT Early effect — output resistance ro ≈ VAF/Ic (finite, not infinite)
+  {
+    const VAF = 100;
+    const at = vc => { const c = new Circuit();
+      c.add({ type: 'V', nodes: ['b', '0'], value: 0.65 });
+      c.add({ type: 'R', nodes: ['cc', 'c'], value: 0.01 });
+      c.add({ type: 'V', nodes: ['cc', '0'], value: vc });
+      c.add({ type: 'Q', nodes: ['c', 'b', '0'], model: { type: 'npn', Is: 1e-15, BF: 100, VAF } });
+      const V = c.dcOP().V; return (vc - V.c) / 0.01; };
+    const i5 = at(5), i7 = at(7), ro = 2 / (i7 - i5), expect = VAF / ((i5 + i7) / 2);
+    near(ro / 1e3, expect / 1e3, expect / 1e3 * 0.15, 'Q3 Early effect: ro ≈ VAF/Ic');
+  }
+
+  // Test Q4: BJT Miller cap gives a FINITE bandwidth (was flat/infinite before caps)
+  {
+    const ce = Cjc => { const c = new Circuit();
+      c.add({ type: 'V', nodes: ['in', '0'], value: 0, ac: 1 });
+      c.add({ type: 'C', nodes: ['in', 'b'], value: 1e-6 });
+      c.add({ type: 'V', nodes: ['vcc', '0'], value: 10 });
+      c.add({ type: 'R', nodes: ['vcc', 'b'], value: 430e3 });
+      c.add({ type: 'R', nodes: ['vcc', 'col'], value: 2000 });
+      c.add({ type: 'Q', nodes: ['col', 'b', '0'], model: { type: 'npn', Is: 1e-15, BF: 100, VAF: 100, CJC: Cjc, CJE: 2e-12, TF: 0.3e-9 } });
+      const r = c.ac(1e2, 1e9, 500); const g0 = 20 * Math.log10(cabs(r.out.col[0]));
+      let f3 = null; for (let i = 0; i < r.freqs.length; i++) if (20 * Math.log10(cabs(r.out.col[i])) <= g0 - 3) { f3 = r.freqs[i]; break; }
+      return { g0, f3 }; };
+    const noC = ce(0), withC = ce(5e-12);
+    console.log(`      CE amp: gain ${withC.g0.toFixed(0)}dB, BW ${withC.f3 ? (withC.f3/1e6).toFixed(0)+'MHz' : 'flat'} (no-cap BW: ${noC.f3?'finite':'flat'})`);
+    near(withC.f3 && !noC.f3 ? 1 : 0, 1, 0.1, 'Q4 Miller cap → finite bandwidth (ideal=flat)');
   }
 
   // Test 3: diode clamp: 5V - 1k - diode - gnd => ~0.6-0.7V, current ~4.3mA
