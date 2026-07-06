@@ -927,14 +927,28 @@ function buildFromSpec(spec){
 
 /* ---- AUTO-ROUTER: net-label layout → real wires. Verifies each net still nets correctly; else falls back to a label (correctness never sacrificed). Power/ground stay as labels by convention. ---- */
 function autoRoute(netPins,layout){
-  const ROWY=14;let X=8;
-  S.comps.forEach(c=>{c.rot=0;c.x=X;c.y=ROWY;X+=(PARTS[c.type].pins>=3?11:7);});
-  // explicit layout directive: stack a named set of parts into a real vertical column (COLUMN_X_COORDINATE is in pixels → /GRID)
-  if(layout&&/vert|column/i.test(layout.align||'')&&Array.isArray(layout.forced)&&layout.forced.length){
-    const gx=layout.colX?Math.max(2,Math.round(layout.colX/GRID)):8;
-    let vy=layout.colY?Math.max(4,Math.round(layout.colY/GRID)):8;
-    const set=new Set(layout.forced.map(r=>String(r).toLowerCase()));
-    S.comps.filter(c=>set.has(String(c.ref).toLowerCase())).forEach(c=>{c.rot=90;c.x=gx;c.y=vy;vy+=6;});
+  const ROWY=14;
+  const byRefLC=r=>S.comps.find(c=>String(c.ref).toLowerCase()===String(r).toLowerCase());
+  const cols=(layout&&Array.isArray(layout.columns))?layout.columns.filter(a=>a&&a.length):[];
+  if(cols.length){
+    // GUIDED 2D: each author "COLUMN <n>" section becomes a side-by-side vertical stack (top→bottom = author order)
+    const placed=new Set();
+    cols.forEach((refs,ci)=>{
+      const gx=(layout.colXs&&layout.colXs[ci]!=null)?Math.max(2,Math.round(layout.colXs[ci]/GRID)):(6+ci*9);
+      let gy=6;refs.forEach(ref=>{const c=byRefLC(ref);if(!c||placed.has(c))return;c.rot=90;c.x=gx;c.y=gy;gy+=6;placed.add(c);});
+    });
+    const ry=6+Math.max(...cols.map(a=>a.length))*6+6;let lx=6;   // leftovers (unassigned parts) tuck into a row beneath the columns
+    S.comps.forEach(c=>{if(placed.has(c))return;c.rot=0;c.x=lx;c.y=ry;lx+=(PARTS[c.type].pins>=3?11:7);});
+  } else {
+    let X=8;
+    S.comps.forEach(c=>{c.rot=0;c.x=X;c.y=ROWY;X+=(PARTS[c.type].pins>=3?11:7);});
+    // explicit layout directive: stack a named set of parts into a real vertical column (COLUMN_X_COORDINATE is in pixels → /GRID)
+    if(layout&&/vert|column/i.test(layout.align||'')&&Array.isArray(layout.forced)&&layout.forced.length){
+      const gx=layout.colX?Math.max(2,Math.round(layout.colX/GRID)):8;
+      let vy=layout.colY?Math.max(4,Math.round(layout.colY/GRID)):8;
+      const set=new Set(layout.forced.map(r=>String(r).toLowerCase()));
+      S.comps.filter(c=>set.has(String(c.ref).toLowerCase())).forEach(c=>{c.rot=90;c.x=gx;c.y=vy;vy+=6;});
+    }
   }
   S.wires=[];S.labels=[];
   const isPwr=nm=>nm==='0'||(nm&&nm[0]==='+');
@@ -981,26 +995,32 @@ function pinIndexOf(pin){if(!pin)return 0;const p=pin.toLowerCase();
   const m={drain:0,gate:1,source:2,collector:0,base:1,emitter:2,'+':0,'-':1,out:2,pin1:0,pin2:1,anode:0,cathode:1,d:0,g:1,s:2,c:0,b:1,e:2};
   if(m[p]!==undefined)return m[p];const n=parseInt(p.replace(/\D/g,''));return isNaN(n)?0:Math.max(0,n-1);}
 function parseStructured(q){
-  const parts=[],nets=[],layout={forced:[]};let section='';
+  const parts=[],nets=[],layout={forced:[],columns:[],colXs:{}};let section='',curCol=-1;
+  const colPush=(ci,ref)=>{const a=layout.columns[ci]=layout.columns[ci]||[];if(!a.includes(ref))a.push(ref);};
   const typeOf=(name,val)=>{const v=(val||'').toLowerCase();
     if(/nmos/.test(v))return['NMOS',''];if(/pmos/.test(v))return['PMOS',''];if(/npn/.test(v))return['NPN',''];if(/pnp/.test(v))return['PNP',''];
     if(/op[- ]?amp|opamp/.test(v))return['OPAMP',''];
     if(/sine/.test(v))return['VAC',val];if(/ac[_ ]?source|^ac$/.test(v))return['VAC','sine 10 60'];   // AC source (default 10V 60Hz if unspecified)
     if(/pulse/.test(v))return['VPULSE',val];
     if(/fuse/.test(v))return['R','0.01'];                                  // fuse ≈ near-zero-ohm link (over-current blow not modelled)
-    if(/tvs|zener|varistor|\bmov\b/.test(v))return['D',''];                // clamp/transient-suppressor as a diode
-    if(/diode/.test(v))return['D',''];
+    if(/tvs|zener|varistor|\bmov\b/.test(v))return['D',val];                // clamp/transient-suppressor as a diode — keep the user's part/model string as the label
+    if(/diode/.test(v))return['D',val];
     const c=name[0].toUpperCase();return({R:['R',val],C:['C',val],L:['L',val],V:['V',val],I:['I',val],D:['D',''],M:['NMOS',''],Q:['NPN','']})[c]||['R',val];};
   q.split(/\r?\n/).forEach(line=>{line=line.trim();
     if(/^components\s*:/i.test(line)){section='c';return;}if(/^nets\s*:/i.test(line)){section='n';return;}
-    if(/^layout\s*:/i.test(line)){section='l';return;}if(!line)return;
+    if(/^layout\s*:/i.test(line)){section='l';return;}
+    // comment lines (start with * or //): skip — but a "COLUMN <n>" marker opens a new placement column
+    if(/^(\*|\/\/)/.test(line)){const cm=line.match(/column[_ ]?(\d+)/i);if(cm)curCol=parseInt(cm[1])-1;return;}
+    if(!line)return;
     // explicit layout directives (may appear in any section) — capture instead of misreading them as parts
-    const dm=line.match(/^(force_components|alignment|arrangement|column_x_coordinate|column_y_start)\s*=\s*(.+)$/i);
-    if(dm){const k=dm[1].toLowerCase(),val=dm[2].trim();
+    const dm=line.match(/^(force_components|alignment|arrangement|column_x_coordinate|column_y_start|column_(\d+)_x|grid_mode)\s*=\s*(.+)$/i);
+    if(dm){const k=dm[1].toLowerCase(),val=(dm[3]||'').trim();
       if(k==='force_components')layout.forced=val.split(',').map(s=>s.trim()).filter(s=>s&&!/^(ground|gnd)$/i.test(s));
       else if(k==='alignment'||k==='arrangement')layout.align=val;
       else if(k==='column_x_coordinate')layout.colX=parseFloat(val);
       else if(k==='column_y_start')layout.colY=parseFloat(val);
+      else if(k==='grid_mode')layout.grid=val;
+      else if(/^column_\d+_x$/.test(k))layout.colXs[parseInt(dm[2])-1]=parseFloat(val);   // COLUMN_1_X → colXs[0]
       return;}
     if(section==='l')return;   // ignore any other free text inside a LAYOUT block
     if(section==='c'){line.split(',').forEach(it=>{const kv=it.split('=');if(kv.length<2)return;const name=kv[0].trim(),val=kv[1].trim();
@@ -1010,7 +1030,8 @@ function parseStructured(q){
       let name=refs.find(r=>/^node|neutral/i.test(r))||(refs.find(r=>/^(ground|gnd)$/i.test(r))?'0':refs[0]);
       if(/^(ground|gnd)$/i.test(name))name='0';
       const connect=[];refs.forEach(r=>{if(/^node|neutral/i.test(r)||/^(ground|gnd)$/i.test(r))return;const d=r.split('.');connect.push([d[0],pinIndexOf(d[1])]);});
-      if(connect.length)nets.push({name,connect});}
+      if(connect.length)nets.push({name,connect});
+      if(curCol>=0)connect.forEach(cn=>colPush(curCol,cn[0]));}   // group by the author's COLUMN comment sections
   });
   return{parts,nets,analysis:'dc',layout};
 }
