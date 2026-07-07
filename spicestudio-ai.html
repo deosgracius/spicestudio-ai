@@ -933,12 +933,21 @@ function autoRoute(netPins,layout){
   if(cols.length){
     // GUIDED 2D: each author "COLUMN <n>" section becomes a side-by-side vertical stack (top→bottom = author order)
     const placed=new Set();
+    // pin→net + shared-net lookup, so each 2-pin part can be flipped to face its neighbour (downward pin at bottom) for clean vertical traces
+    const pinNet={};Object.entries(netPins).forEach(([nm,ps])=>ps.forEach(pp=>pinNet[pp.comp.uid+':'+pp.idx]=nm));
+    const compNets=c=>{const m={};for(let i=0;i<PARTS[c.type].pins;i++){const n=pinNet[c.uid+':'+i];if(n!=null&&!(n in m))m[n]=i;}return m;};
+    const common=(a,b)=>{if(!a||!b)return null;const na=compNets(a),nb=compNets(b);for(const k in na)if(k in nb)return{net:k,ai:na[k]};return null;};
     cols.forEach((refs,ci)=>{
       const gx=(layout.colXs&&layout.colXs[ci]!=null)?Math.max(2,Math.round(layout.colXs[ci]/GRID)):(6+ci*9);
-      let gy=6;refs.forEach(ref=>{const c=byRefLC(ref);if(!c||placed.has(c))return;c.rot=90;c.x=gx;c.y=gy;gy+=6;placed.add(c);});
+      const list=[];refs.forEach(ref=>{const c=byRefLC(ref);if(c&&!placed.has(c)){list.push(c);placed.add(c);}});
+      let gy=6;list.forEach((c,i)=>{let rd=90;
+        if(PARTS[c.type].pins===2){const down=common(c,list[i+1]),up=common(c,list[i-1]);
+          if(down)rd=(down.ai===1)?90:270;else if(up)rd=(up.ai===0)?90:270;}   // rot90: idx0 top / idx1 bottom; flip to 270 otherwise
+        c.rot=rd;c.x=gx;c.y=gy;gy+=6;});
     });
     const ry=6+Math.max(...cols.map(a=>a.length))*6+6;let lx=6;   // leftovers (unassigned parts) tuck into a row beneath the columns
     S.comps.forEach(c=>{if(placed.has(c))return;c.rot=0;c.x=lx;c.y=ry;lx+=(PARTS[c.type].pins>=3?11:7);});
+    S.wires=[];S.labels=[];routeColumns(netPins);invalidate();return;   // dedicated column router draws continuous vertical traces
   } else {
     let X=8;
     S.comps.forEach(c=>{c.rot=0;c.x=X;c.y=ROWY;X+=(PARTS[c.type].pins>=3?11:7);});
@@ -978,6 +987,26 @@ function autoRoute(netPins,layout){
   });
 }
 
+/* ---- COLUMN ROUTER: for guided-2D column layouts, draw continuous vertical traces within each column; net-name tags only bridge across columns / to rails ---- */
+function routeColumns(netPins){
+  const isPwr=nm=>nm==='0'||(nm&&nm[0]==='+');
+  const intended={};Object.entries(netPins).forEach(([nm,pins])=>pins.forEach(pp=>intended[pp.comp.uid+':'+pp.idx]=nm));
+  const verify=(pins,wires)=>{const sw=S.wires;S.wires=wires;const ex=extractNets();S.wires=sw;
+    const key=pp=>pp.comp.uid+':'+pp.idx;const mine=pins.map(pp=>ex.pinNet.get(key(pp)));
+    if(new Set(mine).size!==1)return false;const my=mine[0],mi=intended[key(pins[0])];
+    for(const k in intended){if(intended[k]===mi)continue;if(ex.pinNet.get(k)===my)return false;}return true;};
+  Object.entries(netPins).forEach(([nm,pins])=>{
+    const P=pins.map(pp=>{const p=pinCoords(pp.comp)[pp.idx];return{pp,x:p.x,y:p.y,cx:pp.comp.x};});
+    if(isPwr(nm)){P.forEach(o=>addLabel(o.x,o.y,nm));return;}          // rails / ground stay a labelled bus
+    const byCol={};P.forEach(o=>{(byCol[o.cx]=byCol[o.cx]||[]).push(o);});
+    const keys=Object.keys(byCol);
+    keys.forEach(cx=>{const g=byCol[cx].slice().sort((a,b)=>a.y-b.y);if(g.length<2)return;   // wire this column's same-net pins into one vertical trace
+      const w=[];for(let i=0;i<g.length-1;i++)w.push({x1:g[i].x,y1:g[i].y,x2:g[i+1].x,y2:g[i+1].y});
+      const trial=S.wires.concat(w);if(verify(g.map(o=>o.pp),trial))S.wires=trial;});
+    if(keys.length>1)keys.forEach(cx=>addLabel(byCol[cx][0].x,byCol[cx][0].y,nm));   // one tag per column bridges the columns (same name = same node)
+    else addLabel(P[0].x,P[0].y,nm);
+  });
+}
 /* ---- SPICE NETLIST IMPORT: paste a real netlist → build + simulate (no key needed) ---- */
 function looksLikeSpice(q){
   if(/^\s*\.(model|ac|tran|op|dc|end|include|lib|subckt)\b/im.test(q))return true;

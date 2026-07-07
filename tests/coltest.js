@@ -5,7 +5,7 @@ function mk(){const c=createCanvas(1000,600);c.addEventListener=()=>{};c.getBoun
 const cv={};function el(id){if(id&&/canvas|sch/.test(id)){if(!cv[id])cv[id]=mk();return cv[id];}const e={style:{},dataset:{},classList:{add(){},remove(){},toggle(){},contains:()=>false},addEventListener(){},appendChild(){},removeChild(){},querySelectorAll:()=>[],focus(){},remove(){},clientWidth:1000,clientHeight:500,value:'',textContent:'',getBoundingClientRect:()=>({left:0,top:0,width:1000,height:500}),getContext:()=>mk().getContext('2d')};e.lastChild={remove(){}};e.parentElement={clientWidth:1000,clientHeight:500};Object.defineProperty(e,'innerHTML',{get(){return'';},set(){}});return e;}
 global.document={getElementById:el,createElement:()=>el(''),querySelectorAll:()=>[],addEventListener(){},body:el('')};
 global.window={addEventListener(){},location:{href:''}};global.localStorage={getItem:()=>null,setItem(){}};global.fetch=async()=>({json:async()=>({})});global.alert=()=>{};
-let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__ps=parseStructured;global.__spec=buildFromSpec;';
+let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__ps=parseStructured;global.__spec=buildFromSpec;global.__ext=extractNets;global.__pc=pinCoords;';
 (0,eval)(js);const S=global.__S;let pass=0,fail=0;const chk=(c,m,d)=>{console.log((c?'PASS':'FAIL')+'  '+m+(d?' — '+d:''));c?pass++:fail++;};
 const get=r=>S.comps.find(c=>String(c.ref).toLowerCase()===r.toLowerCase());
 
@@ -68,5 +68,15 @@ chk(pos.every(c=>c.x===Math.round(200/20)),'positive stack at COLUMN_1_X/GRID=10
 chk(neg.every(c=>c.x===Math.round(600/20)),'negative stack at COLUMN_2_X/GRID=30',neg.map(c=>c.ref+'@'+c.x).join(','));
 chk(pos[0].y!==pos[1].y,'positive diodes stacked vertically',pos.map(c=>'y'+c.y).join(','));
 chk(get('D1_pos').value!=='1N4148','TVS diode no longer mislabelled 1N4148',get('D1_pos').value);
+
+// (3) columns are joined by REAL vertical wires now, not just fallback labels
+chk(S.wires.length>=3,'continuous vertical wires drawn inside the columns',S.wires.length+' wire segments');
+const vertical=S.wires.filter(w=>w.x1===w.x2&&w.y1!==w.y2).length;
+chk(vertical>=3,'those traces are vertical (share x, span y)',vertical+' vertical segments');
+// connectivity intact: D1_pos and D2_pos meet at one node via the wire (no label needed between them)
+const ex=global.__ext();const pn=ex.pinNet;
+const key=(ref,idx)=>{const c=get(ref);return c.uid+':'+idx;};
+chk(pn.get(key('D1_pos',0))===pn.get(key('D2_pos',1)),'D1_pos.Anode wired to D2_pos.Cathode (same node)',pn.get(key('D1_pos',0))+' = '+pn.get(key('D2_pos',1)));
+chk(pn.get(key('D1_pos',0))!==pn.get(key('D1_neg',0)),'positive and negative stacks stay electrically separate');
 
 console.log('\n'+pass+' passed, '+fail+' failed');process.exit(fail?1:0);
