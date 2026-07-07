@@ -94,17 +94,17 @@ button{font-family:inherit}
 .ai-head .st:hover{border-color:#3a465c}
 .ai-head .st.live{color:var(--green);border-color:rgba(66,198,103,.4)}
 .ai-head .st.live::before{background:var(--green);box-shadow:0 0 8px var(--green)}
-#ai-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:11px}
+#ai-log{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:11px}
 .msg{padding:10px 13px;border-radius:12px;font-size:12.5px;line-height:1.55;max-width:92%;white-space:pre-wrap;word-wrap:break-word}
 .msg.user{align-self:flex-end;background:var(--grad);color:#fff;border-bottom-right-radius:4px;box-shadow:0 2px 10px rgba(90,110,255,.25)}
 .msg.ai{align-self:flex-start;background:var(--bg-toolbar);border:1px solid var(--border);border-bottom-left-radius:4px}
 .msg.ai b{color:var(--teal)}
 .msg.sys{align-self:center;font-size:11px;color:var(--dim);background:none;padding:2px;text-align:center}
 .msg code{font-family:var(--mono);background:rgba(0,0,0,.4);padding:1.5px 5px;border-radius:4px;font-size:11.5px}
-.ai-chips{display:flex;flex-wrap:wrap;gap:7px;padding:10px 14px 0}
+.ai-chips{display:flex;flex-wrap:wrap;gap:7px;padding:10px 14px 0;flex-shrink:0;max-height:76px;overflow-y:auto}
 .chip{font-size:11px;padding:5px 11px;border-radius:20px;background:var(--bg-input);border:1px solid var(--border);cursor:pointer;color:var(--muted);transition:.12s}
 .chip:hover{border-color:var(--accent-2);color:var(--text);background:var(--bg-hover)}
-.ai-input{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--border);flex-shrink:0;align-items:flex-end}
+.ai-input{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--border);flex-shrink:0;align-items:flex-end;background:var(--bg-panel)}
 .ai-input input,.ai-input textarea{flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:10px;padding:9px 12px;color:var(--text);font-size:12.5px;outline:none;font-family:var(--ui);resize:none;max-height:180px;min-height:38px;line-height:1.45;transition:border-color .13s}
 .ai-input input::placeholder,.ai-input textarea::placeholder{color:var(--dim)}
 .ai-input input:focus,.ai-input textarea:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px rgba(181,140,255,.12)}
@@ -225,6 +225,7 @@ button{font-family:inherit}
         <div class="tool active" id="t-select" title="Select / Move (V)" onclick="setTool('select')">⭶</div>
         <div class="tool" id="t-wire" title="Wire (W)" onclick="setTool('wire')">╱</div>
         <div class="tool" id="t-delete" title="Delete (Del)" onclick="setTool('delete')">🗑</div>
+        <div class="tool" id="t-probe" title="Probe a node (P) — click a wire/pin to plot its voltage" onclick="setTool('probe')">◎</div>
         <div class="tsep"></div>
         <div class="tool" title="Rotate selected (R)" onclick="rotateSel()">⟳</div>
         <div class="tool" title="Zoom in" onclick="zoom(1.2)">＋</div>
@@ -260,7 +261,7 @@ button{font-family:inherit}
       <div id="ai-log"></div>
       <div class="ai-chips" id="ai-chips"></div>
       <div class="ai-input">
-        <textarea id="ai-in" rows="1" placeholder="Ask, design, or paste a SPICE netlist… (Enter to send, Shift+Enter for newline)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiSend();}"></textarea>
+        <textarea id="ai-in" rows="1" placeholder="Ask, design, or paste a netlist…" title="Enter to send · Shift+Enter for a newline" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiSend();}"></textarea>
         <button onclick="aiSend()">➤</button>
       </div>
     </div>
@@ -703,6 +704,7 @@ function draw(){
     ctx.strokeStyle='rgba(63,185,80,.6)';ctx.lineWidth=2;ctx.setLineDash([5,4]);ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.setLineDash([]);}
   // node voltage labels after DC/tran
   if(S.sim&&S.nets)drawNodeLabels();
+  drawProbes();
 }
 function netColor(w){if(!S.nets)return'#3fb950';const nm=S.nets.rootName[S.nets.find(S.nets.key(w.x1,w.y1))];
   if(nm==='0')return'#8b949e';if(nm&&nm[0]==='+')return'#f85149';return'#3fb950';}
@@ -785,6 +787,7 @@ canvas.addEventListener('mousedown',e=>{const r=canvas.getBoundingClientRect();c
   if(S.tool==='wire'){const pin=hitPin(gx,gy);const pt=pin?{x:pin.x,y:pin.y}:{x:gx,y:gy};
     if(!S.wireStart){S.wireStart=pt;}else{if(S.wireStart.x!==pt.x||S.wireStart.y!==pt.y)routeWire(S.wireStart,pt);S.wireStart=(pin?null:pt);if(pin)S.wireStart=null;}draw();return;}
   if(S.tool==='delete'){const c=hitComp(sx,sy);if(c){S.comps=S.comps.filter(x=>x!==c);S.sel=null;}else{const w=hitWire(gx,gy);if(w)S.wires=S.wires.filter(x=>x!==w);}invalidate();draw();return;}
+  if(S.tool==='probe'){probeAt(gx,gy);return;}
   // select/move — click a part to drag it; click empty space to PAN the whole view
   const c=hitComp(sx,sy);S.sel=c;
   if(c){S.drag={c,startX:sx,startY:sy,ox:c.x,oy:c.y};}
@@ -807,9 +810,43 @@ function routeWire(a,b){ // L-route: horizontal then vertical
   else S.wires.push({x1:a.x,y1:a.y,x2:b.x,y2:b.y});invalidate();}
 function invalidate(){S.nets=null;S.sim=null;updateStatus();}
 
-function setTool(t){S.tool=t;S.wireStart=null;['select','wire','delete'].forEach(x=>document.getElementById('t-'+x).classList.toggle('active',x===t));
-  canvas.style.cursor=t==='wire'?'crosshair':(t==='delete'?'not-allowed':'default');
-  const th=document.getElementById('tool-hint');if(th)th.textContent={select:'Drag to move · double-click to edit values',wire:'Click a pin, then click another pin or point',delete:'Click a component or wire to delete'}[t];draw();}
+function setTool(t){S.tool=t;S.wireStart=null;['select','wire','delete','probe'].forEach(x=>document.getElementById('t-'+x).classList.toggle('active',x===t));
+  canvas.style.cursor=(t==='wire'||t==='probe')?'crosshair':(t==='delete'?'not-allowed':'default');
+  const th=document.getElementById('tool-hint');if(th)th.textContent={select:'Drag to move · double-click to edit values',wire:'Click a pin, then click another pin or point',delete:'Click a component or wire to delete',probe:'Click a wire or pin to plot its node voltage · click a probe again to remove'}[t];draw();}
+
+/* ---- PROBES: click a wire/pin to plot that node's voltage. When any probe exists, only probed nets are plotted (else all). ---- */
+function netAtPoint(gx,gy){
+  if(!S.nets)S.nets=extractNets();
+  const N=S.nets;let best=null,bd=0.75;
+  S.comps.forEach(c=>pinCoords(c).forEach((p,i)=>{const d=Math.hypot(p.x-gx,p.y-gy);if(d<bd){bd=d;best=N.pinNet.get(c.uid+':'+i);}}));
+  if(best)return best;
+  const w=S.wires.find(w=>onSeg(gx,gy,w));
+  if(w){const root=N.find(N.key(w.x1,w.y1));if(N.rootName[root])return N.rootName[root];
+    let f=null;S.comps.forEach(c=>pinCoords(c).forEach((p,i)=>{if(N.find(N.key(p.x,p.y))===root)f=N.pinNet.get(c.uid+':'+i);}));return f;}
+  return null;
+}
+function probeAt(gx,gy){
+  const nm=netAtPoint(gx,gy);
+  if(!nm){setStatus('No node there — click directly on a wire or a pin',false);return;}
+  if(nm==='0'){setStatus('Ground (0V) is the reference — probe another node',false);return;}
+  const i=S.probes.findIndex(p=>p.net===nm);
+  if(i>=0)S.probes.splice(i,1); else S.probes.push({net:nm,x:gx,y:gy});
+  setStatus((S.probes.length?S.probes.length+' probe'+(S.probes.length>1?'s':''):'probes cleared')+' · '+S.comps.length,true);
+  draw();drawWave();
+}
+function removeProbe(nm){const i=S.probes.findIndex(p=>p.net===nm);if(i>=0){S.probes.splice(i,1);draw();drawWave();}}
+function probeColor(i){return PLOT_COLORS[i%PLOT_COLORS.length];}
+function drawProbes(){
+  if(!S.probes||!S.probes.length)return;
+  const V=S.sim&&(S.sim.dc||S.sim.finalV);
+  S.probes.forEach((pr,i)=>{const col=probeColor(i);const[x,y]=toScreen(pr.x,pr.y);
+    ctx.beginPath();ctx.arc(x,y,9,0,7);ctx.strokeStyle=col;ctx.globalAlpha=.45;ctx.lineWidth=1.5;ctx.stroke();ctx.globalAlpha=1;
+    ctx.beginPath();ctx.arc(x,y,5,0,7);ctx.fillStyle=col;ctx.fill();ctx.strokeStyle='#0b0e15';ctx.lineWidth=2;ctx.stroke();
+    const val=(V&&V[pr.net]!==undefined)?' '+V[pr.net].toFixed(2)+'V':'';const txt=pr.net+val;
+    ctx.font=`${Math.max(9,9.5*S.zoom)}px var(--mono)`;ctx.textAlign='left';const tw=ctx.measureText(txt).width+8;
+    ctx.fillStyle='rgba(11,14,21,.92)';ctx.fillRect(x+11,y-9,tw,16);ctx.strokeStyle=col;ctx.lineWidth=1;ctx.strokeRect(x+11,y-9,tw,16);
+    ctx.fillStyle=col;ctx.fillText(txt,x+15,y+3);});
+}
 function rotateSel(){if(S.sel){S.sel.rot=(S.sel.rot+90)%360;invalidate();draw();}}
 function zoom(f){S.zoom=Math.max(0.4,Math.min(3,S.zoom*f));draw();}
 function zoomFit(){ // frame the whole circuit (components + wires) into view
@@ -823,7 +860,7 @@ function zoomFit(){ // frame the whole circuit (components + wires) into view
   S.zoom=Math.max(0.35,Math.min(2.5,Math.min((W-40)/gw,(H-40)/gh)));
   S.ox=(W-(maxx+minx)*GRID*S.zoom)/2;S.oy=(H-(maxy+miny)*GRID*S.zoom)/2;draw();}
 document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;
-  if(e.key==='v')setTool('select');if(e.key==='w')setTool('wire');if(e.key==='r')rotateSel();
+  if(e.key==='v')setTool('select');if(e.key==='w')setTool('wire');if(e.key==='p')setTool('probe');if(e.key==='r')rotateSel();
   if(e.key==='Delete'&&S.sel){S.comps=S.comps.filter(x=>x!==S.sel);S.sel=null;invalidate();draw();}});
 
 /* properties popover */
@@ -870,21 +907,25 @@ function drawWave(){const W=wcanvas.width,H=wcanvas.height;wctx.clearRect(0,0,W,
   const PAD={l:52,r:14,t:12,b:22};const pw=W-PAD.l-PAD.r,ph=H-PAD.t-PAD.b;
   wctx.strokeStyle='#21262d';wctx.lineWidth=1;wctx.strokeRect(PAD.l,PAD.t,pw,ph);
   const legend=document.getElementById('wave-legend');legend.innerHTML='';
+  const probed=(S.probes||[]).map(p=>p.net);
+  const colFor=(nm,i)=>{const pi=probed.indexOf(nm);return PLOT_COLORS[((pi>=0?pi:i))%PLOT_COLORS.length];};
+  const legTag=(col,nm,i)=>`<div class="leg" ${probed.length?`onclick="removeProbe('${nm}')" title="remove probe"`:''}><span class="sw" style="background:${col}"></span>${nm}${i}</div>`;
+  const pick=all=>{if(!probed.length)return all;const p=probed.filter(n=>all.includes(n));return p.length?p:all;};
   if(S.waveView==='tran'&&S.sim&&S.sim.trace){
-    const nets=distinctNets();const times=S.sim.times;const tMax=times[times.length-1]||1;
+    const nets=pick(distinctNets());const times=S.sim.times;const tMax=times[times.length-1]||1;
     let vMin=1e9,vMax=-1e9;nets.forEach(nm=>S.sim.trace[nm].forEach(v=>{vMin=Math.min(vMin,v);vMax=Math.max(vMax,v);}));
     if(vMin===vMax){vMin-=1;vMax+=1;}const pad=(vMax-vMin)*0.1;vMin-=pad;vMax+=pad;
     gridY(vMin,vMax,PAD,pw,ph,'V');gridX(0,tMax,PAD,pw,ph,'s');
-    nets.forEach((nm,i)=>{const col=PLOT_COLORS[i%PLOT_COLORS.length];wctx.strokeStyle=col;wctx.lineWidth=1.6;wctx.beginPath();
+    nets.forEach((nm,i)=>{const col=colFor(nm,i);wctx.strokeStyle=col;wctx.lineWidth=1.8;wctx.beginPath();
       S.sim.trace[nm].forEach((v,j)=>{const x=PAD.l+pw*times[j]/tMax,y=PAD.t+ph*(1-(v-vMin)/(vMax-vMin));j?wctx.lineTo(x,y):wctx.moveTo(x,y);});wctx.stroke();
-      legend.innerHTML+=`<div class="leg"><span class="sw" style="background:${col}"></span>${nm}</div>`;});
+      legend.innerHTML+=legTag(col,nm,'');});
   }else if(S.waveView==='ac'&&S.ac){
-    const nets=Object.keys(S.ac.out);const fs=S.ac.freqs;const lf0=Math.log10(fs[0]),lf1=Math.log10(fs[fs.length-1]);
+    const nets=pick(Object.keys(S.ac.out));const fs=S.ac.freqs;const lf0=Math.log10(fs[0]),lf1=Math.log10(fs[fs.length-1]);
     let mMin=1e9,mMax=-1e9;nets.forEach(nm=>S.ac.out[nm].forEach(c=>{const db=20*Math.log10(cabs(c)+1e-12);if(isFinite(db)){mMin=Math.min(mMin,db);mMax=Math.max(mMax,db);}}));
     if(!isFinite(mMin)){mMin=-60;mMax=6;}gridY(mMin,mMax,PAD,pw,ph,'dB');gridXlog(fs[0],fs[fs.length-1],PAD,pw,ph);
-    nets.forEach((nm,i)=>{const col=PLOT_COLORS[i%PLOT_COLORS.length];wctx.strokeStyle=col;wctx.lineWidth=1.6;wctx.beginPath();
+    nets.forEach((nm,i)=>{const col=colFor(nm,i);wctx.strokeStyle=col;wctx.lineWidth=1.8;wctx.beginPath();
       S.ac.out[nm].forEach((c,j)=>{const db=20*Math.log10(cabs(c)+1e-12);const x=PAD.l+pw*(Math.log10(fs[j])-lf0)/(lf1-lf0),y=PAD.t+ph*(1-(db-mMin)/(mMax-mMin));j?wctx.lineTo(x,y):wctx.moveTo(x,y);});wctx.stroke();
-      legend.innerHTML+=`<div class="leg"><span class="sw" style="background:${col}"></span>${nm} (dB)</div>`;});
+      legend.innerHTML+=legTag(col,nm,' (dB)');});
   }else{wctx.fillStyle='#484f58';wctx.font='12px var(--mono)';wctx.textAlign='center';wctx.fillText('Run a simulation to see waveforms',W/2,H/2);}
 }
 function gridY(vMin,vMax,P,pw,ph,unit){wctx.fillStyle='#6e7681';wctx.font='10px var(--mono)';wctx.textAlign='right';wctx.strokeStyle='#1b222b';
@@ -1341,7 +1382,7 @@ function miniSvg(kind,color){const c=color;
   if(kind==='gnd')return`<svg width="30" height="16"><line x1="15" y1="0" x2="15" y2="7" stroke="${c}" stroke-width="1.5"/><line x1="7" y1="7" x2="23" y2="7" stroke="${c}" stroke-width="2"/><line x1="10" y1="10" x2="20" y2="10" stroke="${c}" stroke-width="1.5"/><line x1="13" y1="13" x2="17" y2="13" stroke="${c}" stroke-width="1.5"/></svg>`;
   return`<svg width="30" height="16"><rect x="5" y="3" width="20" height="10" fill="none" stroke="${c}" stroke-width="1.5"/></svg>`;}
 
-function newSheet(){S.comps=[];S.wires=[];S.labels=[];S.sel=null;S.sim=null;S.ac=null;S.nets=null;S.refCount={};uidC=0;draw();drawWave();updateStatus();}
+function newSheet(){S.comps=[];S.wires=[];S.labels=[];S.sel=null;S.sim=null;S.ac=null;S.nets=null;S.probes=[];S.refCount={};uidC=0;draw();drawWave();updateStatus();}
 function loadDemo(kind){newSheet();
   if(kind==='rc'){ // RC low-pass, fc≈1kHz — VAC rot180 so + faces R (verified layout F)
     place('VAC',2,3,'sine 1 1k',180);place('R',6,3,'1.6k');place('C',9,4,'100n',90);place('GND',1,6);place('GND',9,7);
