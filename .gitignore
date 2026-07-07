@@ -1,4 +1,7 @@
 node_modules/
+key.local.json
+.env
+*.key
 tests/app_extract.js
 *.bak
 spicestudio_part*.txt

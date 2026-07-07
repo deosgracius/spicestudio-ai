@@ -991,6 +991,11 @@ function gridXlog(f0,f1,P,pw,ph){wctx.fillStyle='#6e7681';wctx.textAlign='center
    7. AI COPILOT — local intelligence engine + optional Claude API
    ============================================================================ */
 let AI_KEY=localStorage.getItem('ss_key')||'';let AI_MODEL=localStorage.getItem('ss_model')||'claude-opus-4-8';
+// optional local dev convenience: auto-connect a key from a gitignored key.local.json next to this file (never committed)
+function loadLocalKey(){if(AI_KEY||typeof fetch==='undefined')return;
+  fetch('key.local.json',{cache:'no-store'}).then(r=>(r&&r.ok)?r.json():null).then(k=>{if(!k||!k.key||AI_KEY)return;
+    AI_KEY=k.key;if(k.model)AI_MODEL=k.model;localStorage.setItem('ss_key',AI_KEY);localStorage.setItem('ss_model',AI_MODEL);
+    if(typeof refreshAIStatus==='function')refreshAIStatus();try{aiPush('sys','🔑 Connected from local key.local.json — the AI copilot is live.');}catch(_){}}).catch(()=>{});}
 function refreshAIStatus(){const el=document.getElementById('ai-status');if(!el)return;if(AI_KEY){el.textContent='Claude '+AI_MODEL.replace('claude-','');el.classList.add('live');}else{el.textContent='local engine';el.classList.remove('live');}}
 function openKeyModal(){document.getElementById('key-in').value=AI_KEY;document.getElementById('model-in').value=AI_MODEL;document.getElementById('key-modal').style.display='flex';}
 function closeKeyModal(){document.getElementById('key-modal').style.display='none';}
@@ -1761,7 +1766,7 @@ function drawBB(){
 // boot
 window.addEventListener('error',e=>{try{aiPush('sys','⚠ script error: '+e.message);}catch(_){}});
 window.addEventListener('unhandledrejection',e=>{try{aiPush('sys','⚠ '+((e.reason&&e.reason.message)||e.reason));}catch(_){}});
-refreshAIStatus();buildPalette();initChips();initPCB();initBB();resize();
+refreshAIStatus();loadLocalKey();buildPalette();initChips();initPCB();initBB();resize();
 aiPush('ai',"Hi — I'm the design intelligence inside SpiceStudio.<br>Describe <b>any</b> circuit — a filter, an amplifier, a CMOS logic gate, a power supply — and I'll draw it and simulate it. You can also paste a SPICE netlist.<br><br>To design <b>anything</b> from a description, connect your Claude key (the <b>✦ badge, top-right</b>). Without it I can still build the common circuits below and run pasted netlists.");
 loadDemo('led');
 if(typeof requestAnimationFrame!=='undefined')requestAnimationFrame(()=>{resize();zoomFit();});   // fit once the flex layout has settled (boot canvas can start at 0×0)
