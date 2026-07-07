@@ -159,6 +159,11 @@ button{font-family:inherit}
 #pcb-canvas{position:absolute;inset:0;cursor:default}
 #pcb-bar button.pmode.active{background:rgba(56,139,253,.18);border-color:var(--blue);color:var(--blue)}
 #pcb-bar select{height:26px;background:var(--bg-panel);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:12px;padding:0 4px}
+.pcb-layers{display:flex;gap:4px;align-items:center}
+.pcb-layers .lyr{height:24px;padding:0 8px 0 6px;display:inline-flex;align-items:center;gap:5px;background:var(--bg-panel);border:1px solid var(--border);border-radius:20px;color:var(--dim);cursor:pointer;font-size:11px}
+.pcb-layers .lyr::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--lc);opacity:.35}
+.pcb-layers .lyr.on{color:var(--text);border-color:color-mix(in srgb,var(--lc) 55%,var(--border))}
+.pcb-layers .lyr.on::before{opacity:1;box-shadow:0 0 6px var(--lc)}
 #pcb-drc{font-family:var(--mono);font-size:11.5px}
 #pcb-drc.ok{color:var(--green)}#pcb-drc.bad{color:var(--amber)}
 #bb-view{flex:1;display:none;flex-direction:column;min-height:0}
@@ -276,7 +281,15 @@ button{font-family:inherit}
       <button id="pm-route" class="pmode" onclick="pcbMode('route')">Route</button>
       <button id="pm-via" class="pmode" onclick="pcbMode('via')">Via</button>
       <button id="pm-delete" class="pmode" onclick="pcbMode('delete')">Delete</button>
-      <select id="pcb-layer" onchange="PCB.layer=this.value;drawPCB()"><option value="F.Cu">F.Cu (top)</option><option value="B.Cu">B.Cu (bottom)</option></select>
+      <select id="pcb-layer" title="active routing layer" onchange="PCB.layer=this.value;drawPCB()"><option value="F.Cu">F.Cu (top)</option><option value="B.Cu">B.Cu (bottom)</option></select>
+      <span class="pcb-layers" id="pcb-layers">
+        <button class="lyr on" style="--lc:#e0542e" onclick="pcbToggleLayer('top',this)">Top Cu</button>
+        <button class="lyr on" style="--lc:#3a7ad4" onclick="pcbToggleLayer('bottom',this)">Bot Cu</button>
+        <button class="lyr on" style="--lc:#e8e8e8" onclick="pcbToggleLayer('silk',this)">Silk</button>
+        <button class="lyr on" style="--lc:#2f9e57" onclick="pcbToggleLayer('mask',this)">Mask</button>
+        <button class="lyr on" style="--lc:#cfd3d6" onclick="pcbToggleLayer('drill',this)">Drill</button>
+        <button class="lyr on" style="--lc:#d8b24a" onclick="pcbToggleLayer('outline',this)">Edge</button>
+      </span>
       <span class="stat" id="pcb-stat">—</span>
       <span id="pcb-drc"></span>
       <div class="spacer" style="flex:1"></div>
@@ -1560,8 +1573,10 @@ async function fwStart(){
   }catch(e){ if(FW.gen===myGen){fwStatus('runtime error');fwSerial('⚠ '+e.message,true);fwStop();} }
 }
 function fwStop(){FW.running=false;const b=document.getElementById('fw-run');if(b){b.classList.remove('on');b.textContent='▶ Run';}fwStatus('stopped');}
-const PCB={fps:[],tracks:[],vias:[],zoom:1.4,ox:70,oy:50,drag:null,sel:null,mode:'select',layer:'F.Cu',route:null,mouse:[0,0],d3:false};
+const PCB={fps:[],tracks:[],vias:[],zoom:1.4,ox:70,oy:50,drag:null,sel:null,mode:'select',layer:'F.Cu',route:null,mouse:[0,0],d3:false,
+  layers:{top:true,bottom:true,silk:true,mask:true,drill:true,outline:true}};
 const LAYER_COL={'F.Cu':'#e0542e','B.Cu':'#3a7ad4'};
+function pcbToggleLayer(name,btn){PCB.layers[name]=!PCB.layers[name];if(btn)btn.classList.toggle('on',PCB.layers[name]);drawPCB();}
 let pcbCanvas,pctx;const MMPP=9;
 function initPCB(){pcbCanvas=document.getElementById('pcb-canvas');if(!pcbCanvas)return;pctx=pcbCanvas.getContext('2d');
   pcbCanvas.addEventListener('mousedown',pcbDown);pcbCanvas.addEventListener('mousemove',pcbMove);
@@ -1578,7 +1593,7 @@ function buildPCB(){
   PCB.fps=S.comps.filter(c=>PARTS[c.type].footprint).map((c,i)=>{
     const P=PARTS[c.type];const p0=prev[c.ref];
     const pads=P.pinDefs.map((pd,idx)=>({name:pd.name,dx:pd.dx,dy:pd.dy,net:netOf(c.uid,idx)}));
-    return{ref:c.ref,uid:c.uid,type:c.type,fp:P.footprint,rot:0,
+    return{ref:c.ref,uid:c.uid,type:c.type,value:c.value,fp:P.footprint,rot:0,
       x:p0?p0.x:(4+(i%4)*9),y:p0?p0.y:(4+Math.floor(i/4)*8),pads};
   });
 }
@@ -1624,45 +1639,75 @@ function draw3D(){
   ['B.Cu','F.Cu'].forEach(L=>PCB.tracks.filter(t=>t.layer===L).forEach(t=>{pctx.strokeStyle=LAYER_COL[L];pctx.lineWidth=Math.max(1,3*PCB.zoom*0.35);pctx.globalAlpha=L==='F.Cu'?1:0.35;pctx.beginPath();t.pts.forEach((p,i)=>{const[x,y]=iso(p[0],p[1],0);i?pctx.lineTo(x,y):pctx.moveTo(x,y);});pctx.stroke();}));
   pctx.globalAlpha=1;
   PCB.fps.forEach(f=>f.pads.forEach(pd=>{const[x,y]=iso(f.x+pd.dx,f.y+pd.dy,0);pctx.fillStyle='#e0b070';pctx.beginPath();pctx.arc(x,y,2.3*PCB.zoom,0,7);pctx.fill();}));
-  PCB.fps.slice().sort((a,b)=>(a.x+a.y)-(b.x+b.y)).forEach(f=>{const b=fpBounds(f);const h=f.type==='LM358'?3:(f.type==='C'?2.2:1.3);
-    const col=PARTS[f.type]?PARTS[f.type].color:'#888';const ax=f.x+b.minx,bx2=f.x+b.maxx,ay=f.y+b.miny,by2=f.y+b.maxy;
-    const t=(x,y)=>iso(x,y,h),g=(x,y)=>iso(x,y,0);
-    quad([g(ax,by2),g(bx2,by2),t(bx2,by2),t(ax,by2)],shade(col,.55));
-    quad([g(bx2,ay),g(bx2,by2),t(bx2,by2),t(bx2,ay)],shade(col,.72));
-    quad([t(ax,ay),t(bx2,ay),t(bx2,by2),t(ax,by2)],shade(col,1),'rgba(0,0,0,.3)');
-    const[lx,ly]=t((ax+bx2)/2,(ay+by2)/2);pctx.fillStyle='#0a140a';pctx.font=`${8*PCB.zoom}px var(--mono)`;pctx.textAlign='center';pctx.textBaseline='middle';pctx.fillText(f.ref,lx,ly);pctx.textBaseline='alphabetic';});
-  const st=document.getElementById('pcb-stat');if(st)st.innerHTML=`<b>3D board preview</b> · ${PCB.fps.length} parts · ${PCB.tracks.length} tracks (toggle 3D to route)`;
+  // --- realistic 3D component bodies (recognizable silhouettes, painter-sorted) ---
+  const poly=(pts,fill,stroke,sw)=>{pctx.beginPath();pts.forEach((p,i)=>i?pctx.lineTo(p[0],p[1]):pctx.moveTo(p[0],p[1]));pctx.closePath();if(fill){pctx.fillStyle=fill;pctx.fill();}if(stroke){pctx.strokeStyle=stroke;pctx.lineWidth=sw||1;pctx.stroke();}};
+  const ring=(cx,cy,z,r,n)=>{n=n||26;const p=[];for(let k=0;k<n;k++){const a=k/n*Math.PI*2;p.push(iso(cx+r*Math.cos(a),cy+r*Math.sin(a),z));}return p;};
+  const cyl=(cx,cy,r,z0,h,col)=>{const bot=ring(cx,cy,z0,r),top=ring(cx,cy,z0+h,r),n=bot.length,qs=[];
+    for(let k=0;k<n;k++){const j=(k+1)%n,q=[bot[k],bot[j],top[j],top[k]];qs.push({q,ay:(q[0][1]+q[2][1])/2});}
+    const ys=qs.map(o=>o.ay),mn=Math.min(...ys),mx=Math.max(...ys);qs.sort((a,b)=>a.ay-b.ay);
+    qs.forEach(o=>poly(o.q,shade(col,0.5+0.45*((o.ay-mn)/((mx-mn)||1)))));poly(top,shade(col,.98),'rgba(0,0,0,.22)');};
+  const box3=(ax,ay,bx,by,z0,h,col,ts)=>{const g=(x,y)=>iso(x,y,z0),t=(x,y)=>iso(x,y,z0+h);
+    poly([g(ax,by),g(bx,by),t(bx,by),t(ax,by)],shade(col,.5));poly([g(bx,ay),g(bx,by),t(bx,by),t(bx,ay)],shade(col,.68));
+    poly([t(ax,ay),t(bx,ay),t(bx,by),t(ax,by)],shade(col,.95),ts||'rgba(0,0,0,.28)');};
+  const dot3=(cx,cy,z,r,col)=>{const[x,y]=iso(cx,cy,z);pctx.fillStyle=col;pctx.beginPath();pctx.arc(x,y,r,0,7);pctx.fill();};
+  const reflab=(cx,cy,z,ref,col)=>{const[lx,ly]=iso(cx,cy,z);pctx.fillStyle=col||'#f2f2f2';pctx.font=`${7*PCB.zoom}px var(--mono)`;pctx.textAlign='center';pctx.textBaseline='middle';pctx.fillText(ref,lx,ly);pctx.textBaseline='alphabetic';};
+  const vstripe=(cx,cy,r,z0,h,col)=>poly([iso(cx-r,cy,z0),iso(cx-r,cy,z0+h),iso(cx-r*0.45,cy,z0+h),iso(cx-r*0.45,cy,z0)],col);
+  PCB.fps.slice().sort((a,b)=>(a.x+a.y)-(b.x+b.y)).forEach(f=>{
+    const b=fpBounds(f),ax=f.x+b.minx,bx=f.x+b.maxx,ay=f.y+b.miny,by=f.y+b.maxy,cx=f.x,cy=f.y,t=f.type;
+    const col=PARTS[t]?PARTS[t].color:'#8a8a8a',w=bx-ax,d=by-ay,r=Math.max(0.5,Math.min(w,d)*0.42);
+    const big=/[um]/i.test(f.value||'');
+    if(t==='C'&&big){cyl(cx,cy,r,0.2,2.8,'#2a5db0');vstripe(cx,cy,r,0.2,2.8,'rgba(225,228,235,.85)');dot3(cx,cy,3.0,1.1*PCB.zoom,'#5a86c8');reflab(cx,cy,3.0,f.ref,'#eef2f7');}
+    else if(t==='C'){box3(ax,ay,bx,by,0.15,1.3,'#3a6bbf');reflab(cx,cy,1.5,f.ref,'#eef2f7');}
+    else if(t==='L'){cyl(cx,cy,r,0.2,1.8,'#6b4a2a');reflab(cx,cy,2.0,f.ref,'#f0e0c8');}
+    else if(t==='LED'){cyl(cx,cy,r*0.9,0.2,0.5,'#7a1616');const cap=ring(cx,cy,0.75,r*0.9,26);poly(cap,'rgba(255,86,74,.92)','rgba(0,0,0,.25)');dot3(cx-r*0.3,cy-r*0.3,0.8,1.5*PCB.zoom,'rgba(255,205,196,.9)');}
+    else if(t==='D'||t==='DZ'){box3(ax,ay,bx,by,0.15,1.0,'#161616');poly([iso(bx-w*0.28,ay,1.16),iso(bx-w*0.12,ay,1.16),iso(bx-w*0.12,by,1.16),iso(bx-w*0.28,by,1.16)],'#e6e6e6');reflab(cx,cy,1.18,f.ref,'#dcdcdc');}
+    else if(t==='R'){box3(ax,ay,bx,by,0.15,0.9,'#c9a06a');['#5a3a1a','#141414','#c0392b'].forEach((bc,i)=>{const xp=ax+w*(0.3+i*0.16);poly([iso(xp,ay,1.06),iso(xp+w*0.07,ay,1.06),iso(xp+w*0.07,by,1.06),iso(xp,by,1.06)],bc);});reflab(cx,cy,1.08,f.ref,'#3a2a12');}
+    else if(/MOS|NPN|PNP/.test(t)){box3(ax,ay,bx,by,0.15,1.05,'#1b1b1b');dot3(ax+w*0.22,ay+d*0.22,1.22,0.9*PCB.zoom,'#484848');reflab(cx,cy,1.24,f.ref,'#d6d6d6');}
+    else if(t==='OPAMP'||t==='LM358'){const h=1.7;box3(ax,ay,bx,by,0.15,h,'#101014','rgba(255,255,255,.05)');
+      f.pads.forEach(pd=>{const px=f.x+pd.dx,py=f.y+pd.dy;poly([iso(px-0.28,py-0.14,0.14),iso(px+0.28,py-0.14,0.14),iso(px+0.28,py+0.14,0.34),iso(px-0.28,py+0.14,0.34)],'#c6cace');});
+      dot3(ax+w*0.2,ay+d*0.2,h+0.16,1.5*PCB.zoom,'#33333c');reflab(cx,cy,h+0.02,f.ref,'#e6e6ea');}
+    else{box3(ax,ay,bx,by,0.15,1.2,col);reflab(cx,cy,1.35,f.ref,'#0a140a');}
+  });
+  const st=document.getElementById('pcb-stat');if(st)st.innerHTML=`<b>3D board preview</b> · ${PCB.fps.length} parts · realistic packages (toggle 3D to route)`;
 }
 function drawPCB(){
   if(!pctx)return;if(PCB.d3){draw3D();return;}
-  const W=pcbCanvas.width,H=pcbCanvas.height;
-  pctx.clearRect(0,0,W,H);pctx.fillStyle='#0a140a';pctx.fillRect(0,0,W,H);
-  const[bx,by]=toPcb(-2,-2);const bw=52*MMPP*PCB.zoom,bh=40*MMPP*PCB.zoom;
-  pctx.fillStyle='#0d2a17';pctx.fillRect(bx,by,bw,bh);pctx.strokeStyle='#1c4a2a';pctx.lineWidth=2;pctx.strokeRect(bx,by,bw,bh);
-  // copper tracks (bottom layer first, dimmed)
-  ['B.Cu','F.Cu'].forEach(L=>{PCB.tracks.filter(t=>t.layer===L).forEach(t=>{
-    pctx.strokeStyle=LAYER_COL[L];pctx.globalAlpha=(L===PCB.layer?1:0.5);pctx.lineWidth=3*PCB.zoom;pctx.lineCap='round';pctx.lineJoin='round';
-    pctx.beginPath();t.pts.forEach((p,i)=>{const[x,y]=toPcb(p[0],p[1]);i?pctx.lineTo(x,y):pctx.moveTo(x,y);});pctx.stroke();});});
+  const L=PCB.layers,z=PCB.zoom,W=pcbCanvas.width,H=pcbCanvas.height;
+  pctx.clearRect(0,0,W,H);pctx.fillStyle='#0a0f0a';pctx.fillRect(0,0,W,H);
+  const[bx,by]=toPcb(-2,-2);const bw=52*MMPP*z,bh=40*MMPP*z;
+  // SUBSTRATE + SOLDERMASK: bare FR4 (tan) when mask is off, green coating when on
+  pctx.fillStyle=L.mask?'#0e3d22':'#3a3016';pctx.fillRect(bx,by,bw,bh);
+  if(L.mask){pctx.fillStyle='rgba(255,255,255,.03)';pctx.fillRect(bx,by,bw,bh*0.5);}   // subtle sheen
+  // EDGE.CUTS: board outline
+  if(L.outline){pctx.strokeStyle='#e7c25a';pctx.lineWidth=2;pctx.strokeRect(bx,by,bw,bh);}
+  // COPPER: bottom first (dimmed), then top
+  [['B.Cu',L.bottom],['F.Cu',L.top]].forEach(([lyr,on])=>{if(!on)return;
+    PCB.tracks.filter(t=>t.layer===lyr).forEach(t=>{pctx.strokeStyle=LAYER_COL[lyr];pctx.globalAlpha=(lyr===PCB.layer?1:0.55);pctx.lineWidth=3*z;pctx.lineCap='round';pctx.lineJoin='round';
+      pctx.beginPath();t.pts.forEach((p,i)=>{const[x,y]=toPcb(p[0],p[1]);i?pctx.lineTo(x,y):pctx.moveTo(x,y);});pctx.stroke();});});
   pctx.globalAlpha=1;
-  // ratsnest (unrouted airwires)
-  const rn=ratsnest();pctx.strokeStyle='rgba(150,190,255,.55)';pctx.lineWidth=1;
+  // ratsnest (unrouted airwires) — always shown as a design aid
+  const rn=ratsnest();pctx.strokeStyle='rgba(150,190,255,.5)';pctx.lineWidth=1;
   rn.forEach(([a,b])=>{const[ax,ay]=toPcb(a.x,a.y),[bx2,by2]=toPcb(b.x,b.y);pctx.beginPath();pctx.moveTo(ax,ay);pctx.lineTo(bx2,by2);pctx.stroke();});
-  // vias
-  PCB.vias.forEach(v=>{const[x,y]=toPcb(v.x,v.y);pctx.fillStyle='#d8d8d8';pctx.beginPath();pctx.arc(x,y,3.2*PCB.zoom,0,7);pctx.fill();pctx.fillStyle='#0a140a';pctx.beginPath();pctx.arc(x,y,1.4*PCB.zoom,0,7);pctx.fill();});
-  // footprints + pads
-  PCB.fps.forEach(f=>{const sel=PCB.sel===f;const b=fpBounds(f);const[x0,y0]=toPcb(f.x+b.minx,f.y+b.miny);
-    pctx.strokeStyle=sel?'#79c0ff':'#c9b458';pctx.lineWidth=1.3;
-    pctx.strokeRect(x0,y0,(b.maxx-b.minx)*MMPP*PCB.zoom,(b.maxy-b.miny)*MMPP*PCB.zoom);
-    f.pads.forEach(pd=>{const[px,py]=toPcb(f.x+pd.dx,f.y+pd.dy);const r=3.4*PCB.zoom;
-      pctx.fillStyle='#c98a3a';pctx.beginPath();pctx.arc(px,py,r,0,7);pctx.fill();
-      pctx.fillStyle='#0a140a';pctx.beginPath();pctx.arc(px,py,r*0.42,0,7);pctx.fill();});
-    const[lx,ly]=toPcb(f.x,f.y+b.miny);pctx.fillStyle=sel?'#79c0ff':'#8fbf6f';
-    pctx.font=`${11*PCB.zoom}px var(--mono)`;pctx.textAlign='center';pctx.fillText(f.ref,lx,ly-4);});
+  // COPPER PADS (annular ring) + DRILL holes
+  const copperOn=L.top||L.bottom;
+  PCB.fps.forEach(f=>f.pads.forEach(pd=>{const[px,py]=toPcb(f.x+pd.dx,f.y+pd.dy);const r=3.6*z;
+    if(copperOn){pctx.fillStyle=L.top?'#e2a24a':'#8b6a2f';pctx.beginPath();pctx.arc(px,py,r,0,7);pctx.fill();}
+    if(L.drill){pctx.fillStyle=L.mask?'#0e3d22':'#3a3016';pctx.beginPath();pctx.arc(px,py,r*(copperOn?0.42:0.62),0,7);pctx.fill();
+      pctx.strokeStyle='rgba(0,0,0,.4)';pctx.lineWidth=1;pctx.stroke();}}));
+  // VIAS
+  if(L.top||L.bottom){PCB.vias.forEach(v=>{const[x,y]=toPcb(v.x,v.y);pctx.fillStyle='#d8d8d8';pctx.beginPath();pctx.arc(x,y,3.2*z,0,7);pctx.fill();
+    if(L.drill){pctx.fillStyle='#0e3d22';pctx.beginPath();pctx.arc(x,y,1.4*z,0,7);pctx.fill();}});}
+  // SILKSCREEN: white part outlines + reference designators
+  if(L.silk){PCB.fps.forEach(f=>{const sel=PCB.sel===f;const b=fpBounds(f);const[x0,y0]=toPcb(f.x+b.minx,f.y+b.miny);
+    pctx.strokeStyle=sel?'#79c0ff':'#eef1f4';pctx.lineWidth=1.4;pctx.strokeRect(x0,y0,(b.maxx-b.minx)*MMPP*z,(b.maxy-b.miny)*MMPP*z);
+    const[lx,ly]=toPcb(f.x,f.y+b.miny);pctx.fillStyle=sel?'#79c0ff':'#eef1f4';
+    pctx.font=`${11*z}px var(--mono)`;pctx.textAlign='center';pctx.fillText(f.ref,lx,ly-4);});}
+  else if(PCB.sel){const f=PCB.sel,b=fpBounds(f),[x0,y0]=toPcb(f.x+b.minx,f.y+b.miny);pctx.strokeStyle='#79c0ff';pctx.lineWidth=1.4;pctx.strokeRect(x0,y0,(b.maxx-b.minx)*MMPP*z,(b.maxy-b.miny)*MMPP*z);}
   // active route preview
-  if(PCB.route){pctx.strokeStyle=LAYER_COL[PCB.route.layer];pctx.globalAlpha=0.85;pctx.lineWidth=3*PCB.zoom;pctx.setLineDash([6,4]);
+  if(PCB.route){pctx.strokeStyle=LAYER_COL[PCB.route.layer];pctx.globalAlpha=0.85;pctx.lineWidth=3*z;pctx.setLineDash([6,4]);
     pctx.beginPath();PCB.route.pts.concat([PCB.mouse]).forEach((p,i)=>{const[x,y]=toPcb(p[0],p[1]);i?pctx.lineTo(x,y):pctx.moveTo(x,y);});pctx.stroke();pctx.setLineDash([]);pctx.globalAlpha=1;}
   const stat=document.getElementById('pcb-stat');
-  if(stat)stat.innerHTML=`<b>${PCB.fps.length}</b> fp · <b>${PCB.tracks.length}</b> tracks · <b>${rn.length}</b> unrouted · layer <b>${PCB.layer}</b>`;
+  if(stat)stat.innerHTML=`<b>${PCB.fps.length}</b> fp · <b>${PCB.tracks.length}</b> tracks · <b>${rn.length}</b> unrouted · routing <b>${PCB.layer}</b>`;
 }
 function pcbXY(e){const r=pcbCanvas.getBoundingClientRect();return[Math.round((e.clientX-r.left-PCB.ox)/(MMPP*PCB.zoom)),Math.round((e.clientY-r.top-PCB.oy)/(MMPP*PCB.zoom))];}
 function pcbDown(e){if(PCB.d3)return;const[gx,gy]=pcbXY(e);
