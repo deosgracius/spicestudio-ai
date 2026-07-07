@@ -5,7 +5,7 @@ function mk(){const c=createCanvas(1000,600);c.addEventListener=()=>{};c.getBoun
 const cv={};function el(id){if(id&&/canvas|sch/.test(id)){if(!cv[id])cv[id]=mk();return cv[id];}const e={style:{},dataset:{},classList:{add(){},remove(){},toggle(){},contains:()=>false},addEventListener(){},appendChild(){},removeChild(){},querySelectorAll:()=>[],focus(){},remove(){},clientWidth:1000,clientHeight:500,value:'',textContent:'',getBoundingClientRect:()=>({left:0,top:0,width:1000,height:500}),getContext:()=>mk().getContext('2d')};e.lastChild={remove(){}};e.parentElement={clientWidth:1000,clientHeight:500};Object.defineProperty(e,'innerHTML',{get(){return'';},set(){}});return e;}
 global.document={getElementById:el,createElement:()=>el(''),querySelectorAll:()=>[],addEventListener(){},body:el('')};
 global.window={addEventListener(){},location:{href:''}};global.localStorage={getItem:()=>null,setItem(){}};global.fetch=async()=>({json:async()=>({})});global.alert=()=>{};
-let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__try=tryConstructIntent;global.__spec=buildFromSpec;';
+let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__try=tryConstructIntent;global.__spec=buildFromSpec;global.__beyond=beyondLocal;';
 (0,eval)(js);const S=global.__S;let pass=0,fail=0;const chk=(c,m,d)=>{console.log((c?'PASS':'FAIL')+'  '+m+(d?' — '+d:''));c?pass++:fail++;};
 
 // 1) the intent that used to give the canned fallback now builds a gate
@@ -32,5 +32,14 @@ const nandSpec=(a,b)=>({parts:[{ref:'VDD',type:'VCC',value:'5'},{ref:'A',type:'V
 const NAND=(a,b)=>solveOut(nandSpec(a,b),'M3',0);
 chk(NAND(5,5)<1.5,'NAND(1,1) = LOW',NAND(5,5).toFixed(2)+'V');
 chk(NAND(0,5)>3.3,'NAND(0,1) = HIGH',NAND(0,5).toFixed(2)+'V');
+
+// multi-gate digital blocks route to the honest "needs key" message, not the canned fallback
+const B=global.__beyond;
+chk(B('design a full adder')===true,'"full adder" → honest message (was the canned fallback)');
+chk(B('half adder')===true,'"half adder" → honest message');
+chk(B('4-bit counter')===true,'"counter" → honest message');
+chk(B('2-to-1 multiplexer')===true,'"multiplexer" → honest message');
+chk(B('3-stage resistor ladder')===false,'"resistor ladder" NOT caught (adder ≠ ladder)');
+chk(B('design the and gate logic')===false,'"and gate" stays locally buildable, not beyondLocal');
 
 console.log('\n'+pass+' passed, '+fail+' failed');process.exit(fail?1:0);

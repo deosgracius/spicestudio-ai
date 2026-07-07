@@ -1011,6 +1011,7 @@ async function aiSend(){const inp=document.getElementById('ai-in');const q=inp.v
   }catch(err){console.error(err);aiPush('sys','⚠ '+(err&&err.message||err)+' — try reloading the page (Ctrl+Shift+R).');}}
 function beyondLocal(q){const l=q.toLowerCase();
   return /\b(pll|phase[-\s]?locked|gilbert|vco|phase detector|four[-\s]?quadrant|mixer|state[-\s]?variable|schmitt|flip[-\s]?flop|shift register|charge pump|superheterodyne|ring oscillator|wien bridge|3[-\s]?phase|three[-\s]?phase|bldc|inverter bridge)\b/.test(l)
+    || /\b(half[-\s]?adder|full[-\s]?adder|adder|subtractor|multiplexer|mux|demultiplexer|demux|decoder|encoder|alu|counter|latch|register|comparator|multiplier|sram|dram|d[-\s]?flip|sr[-\s]?latch|state machine)\b/.test(l)   // multi-gate digital blocks — need the AI model, not a fixed template
     || (l.match(/stage\s*\d/gi)||[]).length>=2; }
 
 /* ---- context the AI sees: real netlist + real sim summary ---- */
