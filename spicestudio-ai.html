@@ -1574,14 +1574,14 @@ async function fwStart(){
 }
 function fwStop(){FW.running=false;const b=document.getElementById('fw-run');if(b){b.classList.remove('on');b.textContent='▶ Run';}fwStatus('stopped');}
 const PCB={fps:[],tracks:[],vias:[],zoom:1.4,ox:70,oy:50,drag:null,sel:null,mode:'select',layer:'F.Cu',route:null,mouse:[0,0],d3:false,
-  layers:{top:true,bottom:true,silk:true,mask:true,drill:true,outline:true}};
+  yaw:0.72,pitch:0.62,orbit:null,layers:{top:true,bottom:true,silk:true,mask:true,drill:true,outline:true}};
 const LAYER_COL={'F.Cu':'#e0542e','B.Cu':'#3a7ad4'};
 function pcbToggleLayer(name,btn){PCB.layers[name]=!PCB.layers[name];if(btn)btn.classList.toggle('on',PCB.layers[name]);drawPCB();}
 let pcbCanvas,pctx;const MMPP=9;
 function initPCB(){pcbCanvas=document.getElementById('pcb-canvas');if(!pcbCanvas)return;pctx=pcbCanvas.getContext('2d');
   pcbCanvas.addEventListener('mousedown',pcbDown);pcbCanvas.addEventListener('mousemove',pcbMove);
   pcbCanvas.addEventListener('dblclick',()=>{PCB.route=null;drawPCB();});
-  window.addEventListener('mouseup',()=>{PCB.drag=null;});
+  window.addEventListener('mouseup',()=>{PCB.drag=null;if(PCB.orbit){PCB.orbit=null;if(pcbCanvas)pcbCanvas.style.cursor=PCB.d3?'grab':'default';}});
   window.addEventListener('keydown',e=>{if(curView==='pcb'&&e.key==='Escape'){PCB.route=null;drawPCB();}});}
 function resizePCB(){if(!pcbCanvas)return;const w=pcbCanvas.parentElement;pcbCanvas.width=w.clientWidth;pcbCanvas.height=w.clientHeight;}
 function pcbMode(m){PCB.mode=m;PCB.route=null;['select','route','via','delete'].forEach(x=>{const b=document.getElementById('pm-'+x);if(b)b.classList.toggle('active',x===m);});
@@ -1626,16 +1626,20 @@ function toPcb(x,y){return[PCB.ox+x*MMPP*PCB.zoom,PCB.oy+y*MMPP*PCB.zoom];}
 function fpBounds(f){const xs=f.pads.map(p=>p.dx),ys=f.pads.map(p=>p.dy);
   return{minx:Math.min(...xs,0)-0.9,maxx:Math.max(...xs,0)+0.9,miny:Math.min(...ys,0)-0.9,maxy:Math.max(...ys,0)+0.9};}
 function padAt(gx,gy){for(const f of PCB.fps)for(const pd of f.pads){if(f.x+pd.dx===gx&&f.y+pd.dy===gy)return{f,pd,x:gx,y:gy,net:pd.net};}return null;}
-function pcb3d(){PCB.d3=!PCB.d3;const b=document.getElementById('pm-3d');if(b)b.classList.toggle('active',PCB.d3);drawPCB();}
+function pcb3d(){PCB.d3=!PCB.d3;const b=document.getElementById('pm-3d');if(b)b.classList.toggle('active',PCB.d3);if(pcbCanvas)pcbCanvas.style.cursor=PCB.d3?'grab':(PCB.mode==='select'?'default':'crosshair');drawPCB();}
 function shade(hex,f){const n=parseInt(hex.slice(1),16);const r=Math.round(((n>>16)&255)*f),g=Math.round(((n>>8)&255)*f),b=Math.round((n&255)*f);return`rgb(${r},${g},${b})`;}
 function draw3D(){
   const W=pcbCanvas.width,H=pcbCanvas.height;pctx.clearRect(0,0,W,H);pctx.fillStyle='#0a140a';pctx.fillRect(0,0,W,H);
-  const sc=7*PCB.zoom,ox=W*0.5,oy=H*0.34,c=Math.cos(Math.PI/6),s=Math.sin(Math.PI/6);
-  const iso=(x,y,z)=>[ox+(x-y)*c*sc,oy+(x+y)*s*sc-z*sc];
+  const sc=7*PCB.zoom,ox=W*0.5,oy=H*0.46,CX=24,CY=18;
+  const cyA=Math.cos(PCB.yaw),syA=Math.sin(PCB.yaw),sp=Math.sin(PCB.pitch),cp=Math.cos(PCB.pitch);
+  const iso=(x,y,z)=>{const X=x-CX,Y=y-CY,rx=X*cyA-Y*syA,ry=X*syA+Y*cyA;return[ox+rx*sc,oy+ry*sp*sc-z*cp*sc];};   // yaw+pitch orbit camera
+  const depth=(x,y)=>{const X=x-CX,Y=y-CY;return X*syA+Y*cyA;};   // receding axis; smaller = farther (draw first)
   const quad=(p,fill,stroke)=>{pctx.beginPath();p.forEach((pt,i)=>i?pctx.lineTo(pt[0],pt[1]):pctx.moveTo(pt[0],pt[1]));pctx.closePath();if(fill){pctx.fillStyle=fill;pctx.fill();}if(stroke){pctx.strokeStyle=stroke;pctx.lineWidth=1;pctx.stroke();}};
-  const x0=-2,y0=-2,x1=50,y1=38,th=1.6;
-  const A=iso(x0,y0,0),B=iso(x1,y0,0),Cc=iso(x1,y1,0),D=iso(x0,y1,0),C2=iso(x1,y1,-th),D2=iso(x0,y1,-th),B2=iso(x1,y0,-th);
-  quad([D,Cc,C2,D2],'#092011','#06160b');quad([B,Cc,C2,B2],'#0b2917','#06160b');quad([A,B,Cc,D],'#123a20','#1c4a2a');
+  // board slab — 4 side walls painter-sorted by depth, then the top face (correct at any orbit angle)
+  const x0=-2,y0=-2,x1=50,y1=38,th=1.6,bc=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],bw=[];
+  for(let i=0;i<4;i++){const p=bc[i],q=bc[(i+1)%4];bw.push({q:[iso(p[0],p[1],-th),iso(q[0],q[1],-th),iso(q[0],q[1],0),iso(p[0],p[1],0)],d:depth((p[0]+q[0])/2,(p[1]+q[1])/2)});}
+  bw.sort((a,b)=>a.d-b.d);bw.forEach(w=>quad(w.q,'#0a2814','#06160b'));
+  quad([iso(x0,y0,0),iso(x1,y0,0),iso(x1,y1,0),iso(x0,y1,0)],PCB.layers.mask?'#123a20':'#3a3016','#1c4a2a');
   ['B.Cu','F.Cu'].forEach(L=>PCB.tracks.filter(t=>t.layer===L).forEach(t=>{pctx.strokeStyle=LAYER_COL[L];pctx.lineWidth=Math.max(1,3*PCB.zoom*0.35);pctx.globalAlpha=L==='F.Cu'?1:0.35;pctx.beginPath();t.pts.forEach((p,i)=>{const[x,y]=iso(p[0],p[1],0);i?pctx.lineTo(x,y):pctx.moveTo(x,y);});pctx.stroke();}));
   pctx.globalAlpha=1;
   PCB.fps.forEach(f=>f.pads.forEach(pd=>{const[x,y]=iso(f.x+pd.dx,f.y+pd.dy,0);pctx.fillStyle='#e0b070';pctx.beginPath();pctx.arc(x,y,2.3*PCB.zoom,0,7);pctx.fill();}));
@@ -1646,13 +1650,14 @@ function draw3D(){
     for(let k=0;k<n;k++){const j=(k+1)%n,q=[bot[k],bot[j],top[j],top[k]];qs.push({q,ay:(q[0][1]+q[2][1])/2});}
     const ys=qs.map(o=>o.ay),mn=Math.min(...ys),mx=Math.max(...ys);qs.sort((a,b)=>a.ay-b.ay);
     qs.forEach(o=>poly(o.q,shade(col,0.5+0.45*((o.ay-mn)/((mx-mn)||1)))));poly(top,shade(col,.98),'rgba(0,0,0,.22)');};
-  const box3=(ax,ay,bx,by,z0,h,col,ts)=>{const g=(x,y)=>iso(x,y,z0),t=(x,y)=>iso(x,y,z0+h);
-    poly([g(ax,by),g(bx,by),t(bx,by),t(ax,by)],shade(col,.5));poly([g(bx,ay),g(bx,by),t(bx,by),t(bx,ay)],shade(col,.68));
-    poly([t(ax,ay),t(bx,ay),t(bx,by),t(ax,by)],shade(col,.95),ts||'rgba(0,0,0,.28)');};
+  const box3=(ax,ay,bx,by,z0,h,col,ts)=>{const c4=[[ax,ay],[bx,ay],[bx,by],[ax,by]],ws=[];
+    for(let i=0;i<4;i++){const p=c4[i],q=c4[(i+1)%4];ws.push({q:[iso(p[0],p[1],z0),iso(q[0],q[1],z0),iso(q[0],q[1],z0+h),iso(p[0],p[1],z0+h)],d:depth((p[0]+q[0])/2,(p[1]+q[1])/2),sh:[.5,.62,.7,.58][i]});}
+    ws.sort((a,b)=>a.d-b.d);ws.forEach(w=>poly(w.q,shade(col,w.sh)));
+    poly([iso(ax,ay,z0+h),iso(bx,ay,z0+h),iso(bx,by,z0+h),iso(ax,by,z0+h)],shade(col,.95),ts||'rgba(0,0,0,.28)');};
   const dot3=(cx,cy,z,r,col)=>{const[x,y]=iso(cx,cy,z);pctx.fillStyle=col;pctx.beginPath();pctx.arc(x,y,r,0,7);pctx.fill();};
   const reflab=(cx,cy,z,ref,col)=>{const[lx,ly]=iso(cx,cy,z);pctx.fillStyle=col||'#f2f2f2';pctx.font=`${7*PCB.zoom}px var(--mono)`;pctx.textAlign='center';pctx.textBaseline='middle';pctx.fillText(ref,lx,ly);pctx.textBaseline='alphabetic';};
   const vstripe=(cx,cy,r,z0,h,col)=>poly([iso(cx-r,cy,z0),iso(cx-r,cy,z0+h),iso(cx-r*0.45,cy,z0+h),iso(cx-r*0.45,cy,z0)],col);
-  PCB.fps.slice().sort((a,b)=>(a.x+a.y)-(b.x+b.y)).forEach(f=>{
+  PCB.fps.slice().sort((a,b)=>depth(a.x,a.y)-depth(b.x,b.y)).forEach(f=>{
     const b=fpBounds(f),ax=f.x+b.minx,bx=f.x+b.maxx,ay=f.y+b.miny,by=f.y+b.maxy,cx=f.x,cy=f.y,t=f.type;
     const col=PARTS[t]?PARTS[t].color:'#8a8a8a',w=bx-ax,d=by-ay,r=Math.max(0.5,Math.min(w,d)*0.42);
     const big=/[um]/i.test(f.value||'');
@@ -1668,7 +1673,7 @@ function draw3D(){
       dot3(ax+w*0.2,ay+d*0.2,h+0.16,1.5*PCB.zoom,'#33333c');reflab(cx,cy,h+0.02,f.ref,'#e6e6ea');}
     else{box3(ax,ay,bx,by,0.15,1.2,col);reflab(cx,cy,1.35,f.ref,'#0a140a');}
   });
-  const st=document.getElementById('pcb-stat');if(st)st.innerHTML=`<b>3D board preview</b> · ${PCB.fps.length} parts · realistic packages (toggle 3D to route)`;
+  const st=document.getElementById('pcb-stat');if(st)st.innerHTML=`<b>3D board</b> · ${PCB.fps.length} parts · <span style="color:var(--dim)">drag to orbit · ± to zoom</span>`;
 }
 function drawPCB(){
   if(!pctx)return;if(PCB.d3){draw3D();return;}
@@ -1710,7 +1715,7 @@ function drawPCB(){
   if(stat)stat.innerHTML=`<b>${PCB.fps.length}</b> fp · <b>${PCB.tracks.length}</b> tracks · <b>${rn.length}</b> unrouted · routing <b>${PCB.layer}</b>`;
 }
 function pcbXY(e){const r=pcbCanvas.getBoundingClientRect();return[Math.round((e.clientX-r.left-PCB.ox)/(MMPP*PCB.zoom)),Math.round((e.clientY-r.top-PCB.oy)/(MMPP*PCB.zoom))];}
-function pcbDown(e){if(PCB.d3)return;const[gx,gy]=pcbXY(e);
+function pcbDown(e){if(PCB.d3){PCB.orbit={mx:e.clientX,my:e.clientY,yaw:PCB.yaw,pitch:PCB.pitch};if(pcbCanvas)pcbCanvas.style.cursor='grabbing';return;}const[gx,gy]=pcbXY(e);
   if(PCB.mode==='route'){const pad=padAt(gx,gy);
     if(!PCB.route){const net=pad?pad.net:null;PCB.route={net,layer:PCB.layer,pts:[[gx,gy]]};}
     else{PCB.route.pts.push([gx,gy]);
@@ -1724,7 +1729,9 @@ function pcbDown(e){if(PCB.d3)return;const[gx,gy]=pcbXY(e);
   // select / move
   const hit=PCB.fps.slice().reverse().find(f=>{const b=fpBounds(f);return gx>=f.x+b.minx&&gx<=f.x+b.maxx&&gy>=f.y+b.miny&&gy<=f.y+b.maxy;});
   PCB.sel=hit||null;if(hit&&PCB.mode==='select')PCB.drag={f:hit,gx,gy,ox:hit.x,oy:hit.y};drawPCB();}
-function pcbMove(e){PCB.mouse=pcbXY(e);
+function pcbMove(e){
+  if(PCB.orbit){PCB.yaw=PCB.orbit.yaw+(e.clientX-PCB.orbit.mx)*0.012;PCB.pitch=Math.max(0.12,Math.min(1.45,PCB.orbit.pitch-(e.clientY-PCB.orbit.my)*0.01));drawPCB();return;}
+  PCB.mouse=pcbXY(e);
   if(PCB.drag){PCB.drag.f.x=Math.round(PCB.drag.ox+(PCB.mouse[0]-PCB.drag.gx));PCB.drag.f.y=Math.round(PCB.drag.oy+(PCB.mouse[1]-PCB.drag.gy));drawPCB();}
   else if(PCB.route)drawPCB();}
 
