@@ -1270,7 +1270,12 @@ function randG(){return 3+Math.floor(Math.random()*8);}
 
 /* ---- deterministic CONSTRUCTION intents: build/edit known circuits (reliable, no LLM guessing) ---- */
 function tryConstructIntent(q){const l=q.toLowerCase();let m;
-  const threePhase=l.includes('3-phase')||l.includes('3 phase')||l.includes('three-phase')||l.includes('three phase')||l.includes('bldc')||l.includes('inverter');
+  // logic gates (must have a gate/logic keyword so the words "and"/"or"/"not" in prose don't false-trigger)
+  if(/\b(and|or|not|nand|nor|xor|xnor|inverter)\b/.test(l)&&/\b(gate|logic|nand|nor|xor|xnor|inverter)\b/.test(l)){
+    let kind=/\bxnor\b/.test(l)?'xnor':/\bxor\b/.test(l)?'xor':/\bnand\b/.test(l)?'nand':/\bnor\b/.test(l)?'nor':/\b(not|inverter)\b/.test(l)?'not':/\band\b/.test(l)?'and':/\bor\b/.test(l)?'or':null;
+    if(kind){buildLogicGate(kind);return true;}
+  }
+  const threePhase=l.includes('3-phase')||l.includes('3 phase')||l.includes('three-phase')||l.includes('three phase')||l.includes('bldc')||(l.includes('inverter')&&!/gate|logic/.test(l));
   if(!threePhase&&(l.includes('h-bridge')||l.includes('h bridge')||l.includes('hbridge')||(l.includes('bridge')&&(l.includes('motor')||l.includes('4 ')||l.includes('four '))))){buildHBridge();return true;}
   const active=l.includes('sallen')||l.includes('op-amp')||l.includes('op amp')||l.includes('opamp')||l.includes('active')||l.includes('butterworth')||l.includes('2nd')||l.includes('second-order')||l.includes('second order');
   if(active&&(l.includes('low-pass')||l.includes('low pass')||l.includes('lowpass')||l.includes('sallen')||(l.includes('filter')&&!l.includes('high')&&!l.includes('band')))){buildSallenKey(l);return true;}
@@ -1285,6 +1290,36 @@ function tryConstructIntent(q){const l=q.toLowerCase();let m;
   if((m=l.match(/change\s+(\w+)\s+to\s+([\d.]+\s*[a-zµ]*)/))){const c=S.comps.find(x=>x.ref.toLowerCase()===m[1]);if(c){c.value=m[2].trim();invalidate();draw();runSim('dc');aiPush('ai',`Set <b>${c.ref}</b> = <code>${c.value}</code> and re-solved.`);}else{aiPush('ai',`I don't see a part called ${m[1]}.`);}return true;}
   if((m=l.match(/add\s+a?\s*([\d.]+\s*[a-zµ]*)\s*(ohm|Ω|resistor|k)/))){const c=addComp('R',randG(),randG());c.value=m[1].replace(/\s/g,'');invalidate();draw();aiPush('ai',`Added resistor <b>${c.ref}</b> = <code>${c.value}</code>. Wire it in, then simulate.`);return true;}
   return false;
+}
+/* ---- LOGIC GATES: built as verified abstract netlists (diode logic for AND/OR, CMOS for NOT/NAND/NOR) ---- */
+function buildLogicGate(kind){
+  const A='pulse 0 5 1k 0.5',B='pulse 0 5 500 0.5';   // different periods → all input combinations appear over the sweep
+  let spec,desc;
+  if(kind==='and'){
+    spec={parts:[{ref:'VCC',type:'VCC',value:'5'},{ref:'R1',type:'R',value:'10k'},{ref:'A',type:'VPULSE',value:A},{ref:'B',type:'VPULSE',value:B},{ref:'D1',type:'D',value:'1N4148'},{ref:'D2',type:'D',value:'1N4148'}],
+      nets:[{name:'+5V',connect:[['VCC',0],['R1',0]]},{name:'OUT',connect:[['R1',1],['D1',0],['D2',0]]},{name:'A',connect:[['A',0],['D1',1]]},{name:'B',connect:[['B',0],['D2',1]]},{name:'0',connect:[['A',1],['B',1]]}],analysis:'tran'};
+    desc='<b>AND gate</b> (diode logic). OUT is pulled to +5V through R1; whenever an input is LOW its diode clamps OUT down. So <b>OUT is HIGH only when A AND B are HIGH</b>. The transient sweeps A (1 kHz) and B (500 Hz) so all four input combinations appear — plot A, B and OUT (◎ probe) to read the truth table.';
+  }else if(kind==='or'){
+    spec={parts:[{ref:'R1',type:'R',value:'10k'},{ref:'A',type:'VPULSE',value:A},{ref:'B',type:'VPULSE',value:B},{ref:'D1',type:'D',value:'1N4148'},{ref:'D2',type:'D',value:'1N4148'}],
+      nets:[{name:'OUT',connect:[['R1',0],['D1',1],['D2',1]]},{name:'A',connect:[['A',0],['D1',0]]},{name:'B',connect:[['B',0],['D2',0]]},{name:'0',connect:[['R1',1],['A',1],['B',1]]}],analysis:'tran'};
+    desc='<b>OR gate</b> (diode logic). OUT is pulled to ground through R1; either input pulls OUT up through its diode. So <b>OUT is HIGH when A OR B is HIGH</b>.';
+  }else if(kind==='not'){
+    spec={parts:[{ref:'VDD',type:'VCC',value:'5'},{ref:'IN',type:'VPULSE',value:A},{ref:'M1',type:'PMOS'},{ref:'M2',type:'NMOS'}],
+      nets:[{name:'+5V',connect:[['VDD',0],['M1',2]]},{name:'IN',connect:[['IN',0],['M1',1],['M2',1]]},{name:'OUT',connect:[['M1',0],['M2',0]]},{name:'0',connect:[['IN',1],['M2',2]]}],analysis:'tran'};
+    desc='<b>NOT gate</b> (CMOS inverter). PMOS pulls OUT up when IN is LOW; NMOS pulls OUT down when IN is HIGH — <b>OUT = NOT IN</b>.';
+  }else if(kind==='nand'){
+    spec={parts:[{ref:'VDD',type:'VCC',value:'5'},{ref:'A',type:'VPULSE',value:A},{ref:'B',type:'VPULSE',value:B},{ref:'M1',type:'PMOS'},{ref:'M2',type:'PMOS'},{ref:'M3',type:'NMOS'},{ref:'M4',type:'NMOS'}],
+      nets:[{name:'+5V',connect:[['VDD',0],['M1',2],['M2',2]]},{name:'A',connect:[['A',0],['M1',1],['M3',1]]},{name:'B',connect:[['B',0],['M2',1],['M4',1]]},{name:'OUT',connect:[['M1',0],['M2',0],['M3',0]]},{name:'MID',connect:[['M3',2],['M4',0]]},{name:'0',connect:[['A',1],['B',1],['M4',2]]}],analysis:'tran'};
+    desc='<b>NAND gate</b> (CMOS). Two PMOS in parallel pull OUT up; two NMOS in series pull it down only when both inputs are HIGH — <b>OUT = NOT (A AND B)</b>.';
+  }else if(kind==='nor'){
+    spec={parts:[{ref:'VDD',type:'VCC',value:'5'},{ref:'A',type:'VPULSE',value:A},{ref:'B',type:'VPULSE',value:B},{ref:'M1',type:'PMOS'},{ref:'M2',type:'PMOS'},{ref:'M3',type:'NMOS'},{ref:'M4',type:'NMOS'}],
+      nets:[{name:'+5V',connect:[['VDD',0],['M1',2]]},{name:'MID',connect:[['M1',0],['M2',2]]},{name:'OUT',connect:[['M2',0],['M3',0],['M4',0]]},{name:'A',connect:[['A',0],['M1',1],['M3',1]]},{name:'B',connect:[['B',0],['M2',1],['M4',1]]},{name:'0',connect:[['A',1],['B',1],['M3',2],['M4',2]]}],analysis:'tran'};
+    desc='<b>NOR gate</b> (CMOS). Two PMOS in series pull OUT up only when both inputs are LOW; two NMOS in parallel pull it down — <b>OUT = NOT (A OR B)</b>.';
+  }else{   // xor / xnor
+    aiPush('ai','An <b>'+kind.toUpperCase()+'</b> gate needs several sub-gates (it isn\'t a single CMOS stage). I can build <b>AND, OR, NOT, NAND, NOR</b> locally right now — try "NAND gate". For XOR/XNOR, connect a Claude key (✦ top-right) and I\'ll synthesize the full transistor network.');return;
+  }
+  buildFromSpec(spec);
+  aiPush('ai',desc);
 }
 /* ---- LOCAL intelligence: construction + analysis + fallback (no key needed) ---- */
 function aiLocal(q){if(tryConstructIntent(q))return;const l=q.toLowerCase();
