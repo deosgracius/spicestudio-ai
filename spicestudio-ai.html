@@ -38,6 +38,8 @@ button{font-family:inherit}
 .hbtn.primary:hover{filter:brightness(1.08)}
 .hbtn.run{background:linear-gradient(180deg,#4d9bff,#3f7cff);border-color:#3f7cff;color:#03101f;font-weight:650;box-shadow:0 2px 12px rgba(63,124,255,.35)}
 .hbtn.run:hover{filter:brightness(1.06)}
+.hbtn.icon{padding:0 10px;font-size:15px}
+.hbtn.disabled{opacity:.38;pointer-events:none}
 .spacer{flex:1}
 .status{font-size:11.5px;color:var(--muted);padding:5px 11px;font-family:var(--mono);background:var(--bg-input);border:1px solid var(--border-l);border-radius:20px}
 .status b{color:var(--teal);font-weight:600}
@@ -200,6 +202,11 @@ button{font-family:inherit}
   <div id="header">
     <div class="logo"><span class="dot"></span>Spice<span>Studio</span> AI</div>
     <button class="hbtn" onclick="newSheet()">＋ New</button>
+    <button class="hbtn icon" id="h-undo" title="Undo (Ctrl+Z)" onclick="undo()">↶</button>
+    <button class="hbtn icon" id="h-redo" title="Redo (Ctrl+Shift+Z)" onclick="redo()">↷</button>
+    <button class="hbtn" title="Open a saved design" onclick="openFile()">📂 Open</button>
+    <button class="hbtn" title="Save to a file (Ctrl+S)" onclick="saveFile()">💾 Save</button>
+    <div class="tsep"></div>
     <button class="hbtn" onclick="loadDemo('rc')">RC Filter</button>
     <button class="hbtn" onclick="loadDemo('rect')">Rectifier</button>
     <button class="hbtn" onclick="loadDemo('led')">LED Driver</button>
@@ -824,7 +831,7 @@ function hitWire(gx,gy){return S.wires.find(w=>onSeg(gx,gy,w));}
 function routeWire(a,b){ // L-route: horizontal then vertical
   if(a.x!==b.x&&a.y!==b.y){const mid={x:b.x,y:a.y};S.wires.push({x1:a.x,y1:a.y,x2:mid.x,y2:mid.y});S.wires.push({x1:mid.x,y1:mid.y,x2:b.x,y2:b.y});}
   else S.wires.push({x1:a.x,y1:a.y,x2:b.x,y2:b.y});invalidate();}
-function invalidate(){S.nets=null;S.sim=null;S.flowData=null;updateStatus();}
+function invalidate(){S.nets=null;S.sim=null;S.flowData=null;updateStatus();autosave();}
 
 function setTool(t){S.tool=t;S.wireStart=null;['select','wire','delete','probe'].forEach(x=>document.getElementById('t-'+x).classList.toggle('active',x===t));
   canvas.style.cursor=(t==='wire'||t==='probe')?'crosshair':(t==='delete'?'not-allowed':'default');
@@ -1488,7 +1495,29 @@ function miniSvg(kind,color){const c=color;
   if(kind==='gnd')return`<svg width="30" height="16"><line x1="15" y1="0" x2="15" y2="7" stroke="${c}" stroke-width="1.5"/><line x1="7" y1="7" x2="23" y2="7" stroke="${c}" stroke-width="2"/><line x1="10" y1="10" x2="20" y2="10" stroke="${c}" stroke-width="1.5"/><line x1="13" y1="13" x2="17" y2="13" stroke="${c}" stroke-width="1.5"/></svg>`;
   return`<svg width="30" height="16"><rect x="5" y="3" width="20" height="10" fill="none" stroke="${c}" stroke-width="1.5"/></svg>`;}
 
-function newSheet(){S.comps=[];S.wires=[];S.labels=[];S.sel=null;S.sim=null;S.ac=null;S.nets=null;S.probes=[];S.flowOn=false;S.flowData=null;S.refCount={};uidC=0;draw();drawWave();updateStatus();}
+function newSheet(){S.comps=[];S.wires=[];S.labels=[];S.sel=null;S.sim=null;S.ac=null;S.nets=null;S.probes=[];S.flowOn=false;S.flowData=null;S.refCount={};uidC=0;draw();drawWave();updateStatus();autosave();}
+
+/* ============================================================================
+   PERSISTENCE — autosave/restore, file save/open, and undo/redo
+   ============================================================================ */
+function serializeDesign(){return JSON.stringify({v:1,comps:S.comps,wires:S.wires,labels:S.labels,refCount:S.refCount,uidC});}
+function loadDesign(str,fit){try{const d=JSON.parse(str);if(!d||!Array.isArray(d.comps))return false;
+  S.comps=d.comps;S.wires=d.wires||[];S.labels=d.labels||[];S.refCount=d.refCount||{};
+  uidC=d.uidC||S.comps.reduce((m,c)=>Math.max(m,c.uid||0),0);
+  S.sel=null;S.sim=null;S.ac=null;S.nets=null;S.probes=[];S.flowOn=false;S.flowData=null;
+  invalidate();draw();drawWave();updateStatus();if(fit!==false&&canvas.width)zoomFit();return true;}catch(e){return false;}}
+let _asT=null,_lastSnap=null,undoStack=[],redoStack=[];
+function commitState(){const s=serializeDesign();try{localStorage.setItem('ss_sheet',s);}catch(_){}
+  if(_lastSnap!==null&&_lastSnap!==s){undoStack.push(_lastSnap);if(undoStack.length>80)undoStack.shift();redoStack=[];}
+  _lastSnap=s;updateUndoBtns();}
+function autosave(){if(typeof localStorage==='undefined')return;clearTimeout(_asT);_asT=setTimeout(commitState,350);}
+function initHistory(){_lastSnap=serializeDesign();updateUndoBtns();}
+function undo(){if(!undoStack.length)return;redoStack.push(serializeDesign());const p=undoStack.pop();_lastSnap=p;loadDesign(p,false);try{localStorage.setItem('ss_sheet',p);}catch(_){}updateUndoBtns();}
+function redo(){if(!redoStack.length)return;undoStack.push(serializeDesign());const n=redoStack.pop();_lastSnap=n;loadDesign(n,false);try{localStorage.setItem('ss_sheet',n);}catch(_){}updateUndoBtns();}
+function updateUndoBtns(){const u=document.getElementById('h-undo'),r=document.getElementById('h-redo');if(u)u.classList.toggle('disabled',!undoStack.length);if(r)r.classList.toggle('disabled',!redoStack.length);}
+function saveFile(){const blob=new Blob([serializeDesign()],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='circuit.ssproj.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);aiPush('sys','💾 Saved <b>circuit.ssproj.json</b> — Open it later to restore.');}
+function openFile(){const inp=document.createElement('input');inp.type='file';inp.accept='.json,.ssproj,application/json';
+  inp.onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{if(loadDesign(rd.result))aiPush('sys','📂 Opened <b>'+f.name+'</b>.');else aiPush('sys','⚠ Could not read that file as a SpiceStudio design.');};rd.readAsText(f);};inp.click();}
 function loadDemo(kind){newSheet();
   if(kind==='rc'){ // RC low-pass, fc≈1kHz — VAC rot180 so + faces R (verified layout F)
     place('VAC',2,3,'sine 1 1k',180);place('R',6,3,'1.6k');place('C',9,4,'100n',90);place('GND',1,6);place('GND',9,7);
@@ -1820,7 +1849,15 @@ window.addEventListener('error',e=>{try{aiPush('sys','⚠ script error: '+e.mess
 window.addEventListener('unhandledrejection',e=>{try{aiPush('sys','⚠ '+((e.reason&&e.reason.message)||e.reason));}catch(_){}});
 refreshAIStatus();loadLocalKey();buildPalette();initChips();initPCB();initBB();resize();
 aiPush('ai',"Hi — I'm the design intelligence inside SpiceStudio.<br>Describe <b>any</b> circuit — a filter, an amplifier, a CMOS logic gate, a power supply — and I'll draw it and simulate it. You can also paste a SPICE netlist.<br><br>To design <b>anything</b> from a description, connect your Claude key (the <b>✦ badge, top-right</b>). Without it I can still build the common circuits below and run pasted netlists.");
-loadDemo('led');
+const _saved=(typeof localStorage!=='undefined')?localStorage.getItem('ss_sheet'):null;
+if(_saved&&loadDesign(_saved,false))aiPush('sys','↩ Restored your last session — <b>＋ New</b> starts a blank sheet.');
+else loadDemo('led');
+initHistory();
+// undo / redo / save keyboard shortcuts (ignored while typing in a field)
+document.addEventListener('keydown',e=>{if(/INPUT|TEXTAREA/.test(e.target.tagName))return;const k=e.key.toLowerCase();
+  if((e.ctrlKey||e.metaKey)&&k==='z'){e.preventDefault();e.shiftKey?redo():undo();}
+  else if((e.ctrlKey||e.metaKey)&&k==='y'){e.preventDefault();redo();}
+  else if((e.ctrlKey||e.metaKey)&&k==='s'){e.preventDefault();saveFile();}});
 if(typeof requestAnimationFrame!=='undefined')requestAnimationFrame(()=>{resize();zoomFit();});   // fit once the flex layout has settled (boot canvas can start at 0×0)
 </script>
 </body>
