@@ -232,6 +232,8 @@ button{font-family:inherit}
         <div class="tool" title="Zoom out" onclick="zoom(1/1.2)">－</div>
         <div class="tool" title="Fit" onclick="zoomFit()">⊡</div>
         <div class="tsep"></div>
+        <div class="tool" id="t-flow" title="Animate current flow (F) — moving dots show conventional current after a sim" onclick="toggleFlow()">⚡</div>
+        <div class="tsep"></div>
         <span class="tool-lbl" id="tool-hint">Drag a part from the left, then wire pins together</span>
         <div class="spacer" style="flex:1"></div>
         <span class="tool-lbl">Grid 20px · Δt <span id="dt-lbl">10µs</span></span>
@@ -692,6 +694,7 @@ function draw(){
   S.wires.forEach(w=>{ctx.strokeStyle=S.nets?netColor(w):'#3fb950';ctx.lineWidth=2;drawWireHops(w);});
   // junction dots
   const jn=junctionPoints();jn.forEach(([gx,gy])=>{const[x,y]=toScreen(gx,gy);ctx.fillStyle='#3fb950';ctx.beginPath();ctx.arc(x,y,3.5,0,7);ctx.fill();});
+  if(S.flowOn)drawFlow();   // animated current dots ride the wires, under the components
   // components
   S.comps.forEach(c=>drawComp(c));
   // net labels
@@ -808,7 +811,7 @@ function hitWire(gx,gy){return S.wires.find(w=>onSeg(gx,gy,w));}
 function routeWire(a,b){ // L-route: horizontal then vertical
   if(a.x!==b.x&&a.y!==b.y){const mid={x:b.x,y:a.y};S.wires.push({x1:a.x,y1:a.y,x2:mid.x,y2:mid.y});S.wires.push({x1:mid.x,y1:mid.y,x2:b.x,y2:b.y});}
   else S.wires.push({x1:a.x,y1:a.y,x2:b.x,y2:b.y});invalidate();}
-function invalidate(){S.nets=null;S.sim=null;updateStatus();}
+function invalidate(){S.nets=null;S.sim=null;S.flowData=null;updateStatus();}
 
 function setTool(t){S.tool=t;S.wireStart=null;['select','wire','delete','probe'].forEach(x=>document.getElementById('t-'+x).classList.toggle('active',x===t));
   canvas.style.cursor=(t==='wire'||t==='probe')?'crosshair':(t==='delete'?'not-allowed':'default');
@@ -847,6 +850,55 @@ function drawProbes(){
     ctx.fillStyle='rgba(11,14,21,.92)';ctx.fillRect(x+11,y-9,tw,16);ctx.strokeStyle=col;ctx.lineWidth=1;ctx.strokeRect(x+11,y-9,tw,16);
     ctx.fillStyle=col;ctx.fillText(txt,x+15,y+3);});
 }
+
+/* ---- LIVE CURRENT FLOW (Falstad-style): reconstruct branch currents from the DC/transient op-point and animate moving dots along the wires ---- */
+function computeFlows(){
+  if(!S.sim||!S.nets||!S.wires.length)return null;
+  const V=S.sim.dc||S.sim.finalV;if(!V)return null;
+  const netV=nm=>nm==='0'?0:(V[nm]||0);
+  // internal current pin0→pin1 for each current-carrying 2-pin part (from node voltages)
+  const Ielem=new Map();
+  S.comps.forEach(c=>{const P=PARTS[c.type];if(P.pins!==2)return;
+    const na=S.nets.pinNet.get(c.uid+':0'),nb=S.nets.pinNet.get(c.uid+':1');if(na==null||nb==null)return;
+    const Va=netV(na),Vb=netV(nb);let I=null;
+    if(c.type==='R')I=(Va-Vb)/(parseVal(c.value)||1);
+    else if(c.type==='D'||c.type==='LED'||c.type==='DZ'){const md=c.spiceModel||MODELS[c.value]||MODELS['1N4148'];const nVt=((md&&md.N)||1)*VT;const vd=Va-Vb;I=((md&&md.Is)||1e-14)*(Math.exp(Math.min(vd/nVt,100))-1);}   // cap exponent (not vd) so an LED's ~1.8V drop still yields its real current
+    if(I!==null&&isFinite(I))Ielem.set(c,I);});
+  // terminal outflow (current OUT of the part into the wire) keyed by grid point
+  const key=(x,y)=>x+','+y,termOut=new Map();
+  const addTerm=(x,y,out)=>{const k=key(x,y),cur=termOut.get(k);if(cur===undefined||Math.abs(out)>Math.abs(cur))termOut.set(k,out);};
+  S.comps.forEach(c=>{if(!Ielem.has(c))return;const I=Ielem.get(c),ps=pinCoords(c);addTerm(ps[0].x,ps[0].y,-I);addTerm(ps[1].x,ps[1].y,I);});
+  const flows=S.wires.map(()=>null);
+  const head=(w,f)=>f.dir>0?[w.x2,w.y2]:[w.x1,w.y1];   // where the arrow points
+  // seed: wires touching a part terminal
+  S.wires.forEach((w,i)=>{const oP=termOut.get(key(w.x1,w.y1)),oQ=termOut.get(key(w.x2,w.y2));
+    if(oP!==undefined&&Math.abs(oP)>1e-12)flows[i]={mag:Math.abs(oP),dir:oP>0?1:-1};
+    else if(oQ!==undefined&&Math.abs(oQ)>1e-12)flows[i]={mag:Math.abs(oQ),dir:oQ>0?-1:1};});
+  // propagate through series wire chains: a wire inherits its neighbour's current, flowing on from the shared point
+  for(let pass=0;pass<8;pass++){let changed=false;
+    S.wires.forEach((w,i)=>{if(flows[i])return;
+      for(let j=0;j<S.wires.length;j++){if(i===j||!flows[j])continue;const w2=S.wires[j],[hx,hy]=head(w2,flows[j]);
+        if(w.x1===w2.x1&&w.y1===w2.y1||w.x1===w2.x2&&w.y1===w2.y2){const into=(hx===w.x1&&hy===w.y1);flows[i]={mag:flows[j].mag,dir:into?1:-1};changed=true;break;}
+        if(w.x2===w2.x1&&w.y2===w2.y1||w.x2===w2.x2&&w.y2===w2.y2){const into=(hx===w.x2&&hy===w.y2);flows[i]={mag:flows[j].mag,dir:into?-1:1};changed=true;break;}}});
+    if(!changed)break;}
+  let mx=0;flows.forEach(f=>{if(f)mx=Math.max(mx,f.mag);});
+  return{flows,max:mx};
+}
+function drawFlow(){
+  if(!S.flowOn)return;if(!S.flowData)S.flowData=computeFlows();const F=S.flowData;if(!F||F.max<=0)return;
+  const t=S.flowT||0,SP=15;   // dot spacing (px)
+  S.wires.forEach((w,i)=>{const f=F.flows[i];if(!f||f.mag<F.max*1e-3)return;
+    const[x1,y1]=toScreen(w.x1,w.y1),[x2,y2]=toScreen(w.x2,w.y2),len=Math.hypot(x2-x1,y2-y1);if(len<2)return;
+    const ux=(x2-x1)/len,uy=(y2-y1)/len,speed=0.25+0.75*(f.mag/F.max);
+    const phase=((t*speed*0.9)%SP+SP)%SP;
+    for(let d=phase;d<len;d+=SP){const dd=f.dir>0?d:len-d,px=x1+ux*dd,py=y1+uy*dd;
+      ctx.beginPath();ctx.arc(px,py,2.3,0,7);ctx.fillStyle='#ffe36b';ctx.globalAlpha=.95;ctx.fill();ctx.globalAlpha=1;}});
+}
+function flowTick(){if(!S.flowOn){S.flowRAF=null;return;}S.flowT=(S.flowT||0)+1;draw();S.flowRAF=requestAnimationFrame(flowTick);}
+function startFlow(){if(!S.sim)return;S.flowOn=true;S.flowData=computeFlows();const b=document.getElementById('t-flow');if(b)b.classList.add('active');
+  if(typeof requestAnimationFrame!=='undefined'&&!S.flowRAF)flowTick();}
+function stopFlow(){S.flowOn=false;const b=document.getElementById('t-flow');if(b)b.classList.remove('active');draw();}
+function toggleFlow(){if(S.flowOn)stopFlow();else if(S.sim)startFlow();else setStatus('Run a simulation first, then ⚡ animates the current',false);}
 function rotateSel(){if(S.sel){S.sel.rot=(S.sel.rot+90)%360;invalidate();draw();}}
 function zoom(f){S.zoom=Math.max(0.4,Math.min(3,S.zoom*f));draw();}
 function zoomFit(){ // frame the whole circuit (components + wires) into view
@@ -860,7 +912,7 @@ function zoomFit(){ // frame the whole circuit (components + wires) into view
   S.zoom=Math.max(0.35,Math.min(2.5,Math.min((W-40)/gw,(H-40)/gh)));
   S.ox=(W-(maxx+minx)*GRID*S.zoom)/2;S.oy=(H-(maxy+miny)*GRID*S.zoom)/2;draw();}
 document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;
-  if(e.key==='v')setTool('select');if(e.key==='w')setTool('wire');if(e.key==='p')setTool('probe');if(e.key==='r')rotateSel();
+  if(e.key==='v')setTool('select');if(e.key==='w')setTool('wire');if(e.key==='p')setTool('probe');if(e.key==='f')toggleFlow();if(e.key==='r')rotateSel();
   if(e.key==='Delete'&&S.sel){S.comps=S.comps.filter(x=>x!==S.sel);S.sel=null;invalidate();draw();}});
 
 /* properties popover */
@@ -885,13 +937,13 @@ function runSim(kind){
   const{ckt,nets}=buildCircuit(kind==='ac');S.nets=nets;
   if(ckt.elements.length===0){aiPush('sys','Nothing to simulate — drag some parts and wire them.');draw();return;}
   try{
-    if(kind==='dc'){const op=ckt.dcOP();S.sim={dc:op.V};setStatus(op.conv?'DC solved':'DC (no converge)',op.conv);draw();autoDiagnose('dc',op);return;}
+    if(kind==='dc'){const op=ckt.dcOP();S.sim={dc:op.V};setStatus(op.conv?'DC solved':'DC (no converge)',op.conv);draw();startFlow();autoDiagnose('dc',op);return;}
     if(kind==='ac'){const nlNodes=distinctNets();const r=ckt.ac(1,1e6,300);S.ac=r;S.waveView='ac';setWaveView('ac');setStatus('AC sweep 1Hz–1MHz done',true);autoDiagnose('ac',r);return;}
     // transient — choose dt/tStop from fastest source
     autoTiming(ckt);const r=ckt.transient(S.tStop,S.dt,{uic:true});
     S.sim={trace:r.trace,times:r.times,finalV:{}};distinctNets().forEach(nm=>S.sim.finalV[nm]=r.trace[nm]?r.trace[nm][r.trace[nm].length-1]:0);
     S.waveView='tran';setWaveView('tran');const dl=document.getElementById('dt-lbl');if(dl)dl.textContent=fmtEng(S.dt)+'s';
-    setStatus(`Transient ${fmtEng(S.tStop)}s, ${r.times.length} pts`,true);draw();autoDiagnose('tran',r);
+    setStatus(`Transient ${fmtEng(S.tStop)}s, ${r.times.length} pts`,true);draw();startFlow();autoDiagnose('tran',r);
   }catch(err){setStatus('Sim error: '+err.message,false);aiPush('sys','⚠ Simulation error: '+err.message);}
 }
 function autoTiming(ckt){ // pick timestep from highest source frequency
@@ -1382,7 +1434,7 @@ function miniSvg(kind,color){const c=color;
   if(kind==='gnd')return`<svg width="30" height="16"><line x1="15" y1="0" x2="15" y2="7" stroke="${c}" stroke-width="1.5"/><line x1="7" y1="7" x2="23" y2="7" stroke="${c}" stroke-width="2"/><line x1="10" y1="10" x2="20" y2="10" stroke="${c}" stroke-width="1.5"/><line x1="13" y1="13" x2="17" y2="13" stroke="${c}" stroke-width="1.5"/></svg>`;
   return`<svg width="30" height="16"><rect x="5" y="3" width="20" height="10" fill="none" stroke="${c}" stroke-width="1.5"/></svg>`;}
 
-function newSheet(){S.comps=[];S.wires=[];S.labels=[];S.sel=null;S.sim=null;S.ac=null;S.nets=null;S.probes=[];S.refCount={};uidC=0;draw();drawWave();updateStatus();}
+function newSheet(){S.comps=[];S.wires=[];S.labels=[];S.sel=null;S.sim=null;S.ac=null;S.nets=null;S.probes=[];S.flowOn=false;S.flowData=null;S.refCount={};uidC=0;draw();drawWave();updateStatus();}
 function loadDemo(kind){newSheet();
   if(kind==='rc'){ // RC low-pass, fc≈1kHz — VAC rot180 so + faces R (verified layout F)
     place('VAC',2,3,'sine 1 1k',180);place('R',6,3,'1.6k');place('C',9,4,'100n',90);place('GND',1,6);place('GND',9,7);
