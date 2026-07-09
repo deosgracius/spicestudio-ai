@@ -3,114 +3,128 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SpiceStudio AI — Live SPICE EDA</title>
+<title>SpiceStudio AI - Live SPICE EDA</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg-deep:#0b0e15;--bg-panel:#0f131d;--bg-canvas:#080a10;--bg-toolbar:#141a26;
-  --bg-input:#090c13;--bg-hover:#1a2130;--bg-active:#1f2838;
-  --border:#232c3b;--border-l:#1a212d;--hair:rgba(255,255,255,.05);
-  --text:#e9eef7;--muted:#96a1b4;--dim:#5a6577;
-  --blue:#5b8cff;--green:#42c667;--red:#ff6b62;--amber:#e6a938;--teal:#4fd6c0;--purple:#b58cff;
-  --accent:#6488ff;--accent-2:#b58cff;--grad:linear-gradient(135deg,#6488ff,#b58cff);
+  /* graphite neutral ramp (cool, desaturated) */
+  --bg-deep:#0c0e12;--bg-panel:#111318;--bg-canvas:#08090c;--bg-toolbar:#15181f;
+  --bg-input:#0a0c10;--bg-hover:#1b1f28;--bg-active:#212633;
+  --border:#242936;--border-l:#1a1e28;--hair:rgba(255,255,255,.04);
+  --text:#e7eaf0;--muted:#99a1b0;--dim:#5d6570;
+  /* semantic colors (status / plots) */
+  --blue:#569cf7;--green:#3fbf6c;--red:#e5655d;--amber:#d9a13c;--teal:#43c1ad;--purple:#a48bd8;
+  /* single locked accent: instrument blue */
+  --accent:#569cf7;--accent-2:#569cf7;--accent-dim:rgba(86,156,247,.13);--accent-brd:rgba(86,156,247,.42);
   --wire:#3fb950;--pin:#d29922;--sel:#388bfd;
-  --r:9px;--r-sm:6px;--r-lg:13px;--shadow:0 8px 30px rgba(0,0,0,.5);
-  --mono:'Cascadia Code','SF Mono','Consolas',monospace;--ui:'Inter','Segoe UI',system-ui,sans-serif;
+  /* shape system: controls 6px · surfaces 10px · badges pill */
+  --r:10px;--r-sm:6px;--r-lg:12px;--shadow:0 10px 32px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.35);
+  --mono:'Cascadia Code','SF Mono','Consolas',monospace;--ui:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;
 }
 html,body{width:100%;height:100%;overflow:hidden;font-family:var(--ui);font-size:13px;background:var(--bg-deep);color:var(--text);line-height:1.45;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:#242c3a;border-radius:6px;border:2px solid transparent;background-clip:content-box}
-::-webkit-scrollbar-thumb:hover{background:#39435600;background:#394356;background-clip:content-box}
+code,.status,.tool-lbl,.wave-legend,.fw-pin{font-variant-numeric:tabular-nums}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#252b38;border-radius:5px}
+::-webkit-scrollbar-thumb:hover{background:#333c4e}
 :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 button{font-family:inherit}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 #app{display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden}
 
 /* Header */
-#header{height:52px;min-height:52px;background:linear-gradient(180deg,#12161f,#0e121b);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:7px;flex-shrink:0;z-index:50;box-shadow:0 1px 0 var(--hair) inset}
-.logo{display:flex;align-items:center;gap:9px;margin-right:20px;font-weight:650;font-size:15.5px;letter-spacing:-.2px}
-.logo .dot{width:22px;height:22px;border-radius:7px;background:var(--grad);display:inline-block;box-shadow:0 0 18px rgba(120,120,255,.45),0 1px 0 rgba(255,255,255,.25) inset;position:relative}
-.logo .dot::after{content:"∿";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;opacity:.92}
-.logo span{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.hbtn{height:32px;padding:0 13px;display:inline-flex;align-items:center;gap:6px;background:var(--bg-toolbar);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);cursor:pointer;font-size:12.5px;font-weight:500;transition:background .13s,border-color .13s,transform .05s}
-.hbtn:hover{border-color:#3a465c;background:var(--bg-hover)}
+#header{height:48px;min-height:48px;background:var(--bg-panel);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:4px;flex-shrink:0;z-index:50}
+.logo{display:flex;align-items:center;gap:9px;margin:0 14px 0 4px;font-weight:650;font-size:14.5px;letter-spacing:-.2px}
+.logo .dot{width:22px;height:22px;border-radius:6px;background:var(--accent);display:inline-block;position:relative}
+.logo .dot::after{content:"∿";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:#0a1626;font-weight:700}
+.logo span{color:var(--accent)}
+.hbtn{height:30px;padding:0 11px;display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid transparent;border-radius:var(--r-sm);color:var(--muted);cursor:pointer;font-size:12.5px;font-weight:500;transition:background .12s,color .12s,border-color .12s}
+.hbtn:hover{background:var(--bg-hover);color:var(--text)}
 .hbtn:active{transform:translateY(1px)}
-.hbtn.primary{background:var(--green);border-color:var(--green);color:#04120a;font-weight:650}
+.hbtn.primary{background:var(--green);border-color:var(--green);color:#06130b;font-weight:650}
 .hbtn.primary:hover{filter:brightness(1.08)}
-.hbtn.run{background:linear-gradient(180deg,#4d9bff,#3f7cff);border-color:#3f7cff;color:#03101f;font-weight:650;box-shadow:0 2px 12px rgba(63,124,255,.35)}
-.hbtn.run:hover{filter:brightness(1.06)}
-.hbtn.icon{padding:0 10px;font-size:15px}
-.hbtn.disabled{opacity:.38;pointer-events:none}
+.hbtn.run{background:var(--accent);border-color:var(--accent);color:#0a1626;font-weight:650}
+.hbtn.run:hover{filter:brightness(1.08);color:#0a1626}
+.hbtn.icon{padding:0 9px;font-size:15px}
+.hbtn.disabled{opacity:.35;pointer-events:none}
 .spacer{flex:1}
-.status{font-size:11.5px;color:var(--muted);padding:5px 11px;font-family:var(--mono);background:var(--bg-input);border:1px solid var(--border-l);border-radius:20px}
-.status b{color:var(--teal);font-weight:600}
+.status{font-size:11.5px;color:var(--muted);padding:5px 12px;font-family:var(--mono);background:var(--bg-input);border:1px solid var(--border-l);border-radius:20px;margin-right:6px;white-space:nowrap}
+.status b{color:var(--text);font-weight:600}
+/* dropdown menu (Examples) */
+.menu{position:relative}
+.menu-list{position:absolute;top:34px;left:0;min-width:200px;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:5px;display:none;z-index:120}
+.menu.open .menu-list{display:block}
+.menu-list button{display:block;width:100%;text-align:left;padding:8px 11px;background:none;border:none;border-radius:var(--r-sm);color:var(--text);font-size:12.5px;cursor:pointer}
+.menu-list button:hover{background:var(--bg-hover)}
+.menu-list .mk{color:var(--dim);font-size:11px;font-family:var(--mono);float:right;margin-top:1px}
 
 /* Body layout */
 #body{flex:1;display:flex;min-height:0;background:var(--bg-deep)}
 #palette{width:216px;min-width:216px;background:var(--bg-panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-.pal-search{margin:10px 10px 6px;padding:8px 11px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none;transition:border-color .13s}
+.pal-search{margin:10px 10px 6px;padding:7px 11px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none;transition:border-color .13s}
 .pal-search::placeholder{color:var(--dim)}
-.pal-search:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(100,136,255,.12)}
+.pal-search:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
 .pal-scroll{flex:1;overflow-y:auto;padding:0 8px 12px}
-.pal-cat{margin-top:10px}
-.pal-cat-h{font-size:10px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim);padding:6px 6px 4px;font-weight:700}
-.pal-item{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:var(--r-sm);cursor:grab;border:1px solid transparent;transition:background .1s,border-color .1s}
-.pal-item:hover{background:var(--bg-hover);border-color:var(--border)}
+.pal-cat{margin-top:12px}
+.pal-cat-h{font-size:10px;text-transform:uppercase;letter-spacing:.9px;color:var(--dim);padding:4px 6px;font-weight:650}
+.pal-item{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:var(--r-sm);cursor:grab;border:1px solid transparent;transition:background .1s}
+.pal-item:hover{background:var(--bg-hover)}
 .pal-item:active{cursor:grabbing;background:var(--bg-active)}
-.pal-item svg{flex-shrink:0}
-.pal-item .nm{font-size:12px;flex:1;font-weight:500}
-.pal-item .vl{font-size:10.5px;color:var(--muted);font-family:var(--mono)}
+.pal-item svg{flex-shrink:0;opacity:.9}
+.pal-item .nm{font-size:12px;flex:1;font-weight:450;color:var(--text)}
+.pal-item .vl{font-size:10.5px;color:var(--dim);font-family:var(--mono)}
 
 /* Center */
 #center{flex:1;display:flex;flex-direction:column;min-width:0}
-#toolbar{height:40px;background:var(--bg-toolbar);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:3px;padding:0 10px;flex-shrink:0}
-.tool{width:31px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);cursor:pointer;color:var(--muted);border:1px solid transparent;font-size:14px;transition:background .1s,color .1s}
+#toolbar{height:38px;background:var(--bg-toolbar);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:2px;padding:0 8px;flex-shrink:0}
+.tool{width:30px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);cursor:pointer;color:var(--muted);border:1px solid transparent;font-size:14px;transition:background .1s,color .1s}
 .tool:hover{background:var(--bg-hover);color:var(--text)}
-.tool.active{background:rgba(100,136,255,.16);color:var(--accent);border-color:rgba(100,136,255,.38)}
-.tsep{width:1px;height:20px;background:var(--border);margin:0 5px}
+.tool.active{background:var(--accent-dim);color:var(--accent);border-color:var(--accent-brd)}
+.tsep{width:1px;height:18px;background:var(--border);margin:0 6px}
 .tool-lbl{font-size:11px;color:var(--dim);padding:0 7px}
 .tool-lbl b{color:var(--muted);font-weight:600}
 
 #canvas-wrap{flex:1;position:relative;overflow:hidden;background:var(--bg-canvas)}
 #sch{position:absolute;inset:0;cursor:crosshair}
-#hint{position:absolute;bottom:12px;left:14px;font-size:11px;color:var(--muted);font-family:var(--mono);pointer-events:none;background:rgba(10,13,20,.72);border:1px solid var(--border-l);padding:5px 10px;border-radius:20px;backdrop-filter:blur(6px)}
+#hint{position:absolute;bottom:12px;left:14px;font-size:11px;color:var(--muted);font-family:var(--mono);pointer-events:none;background:rgba(9,11,15,.8);border:1px solid var(--border-l);padding:5px 11px;border-radius:20px}
 
-/* Bottom: waveform */
+/* Bottom: waveform (the oscilloscope) */
 #wave-panel{height:224px;min-height:36px;background:var(--bg-panel);border-top:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
-.wave-head{height:36px;display:flex;align-items:center;gap:6px;padding:0 12px;border-bottom:1px solid var(--border);flex-shrink:0}
-.wtab{padding:5px 13px;font-size:12px;color:var(--muted);cursor:pointer;border-radius:var(--r-sm);font-weight:500;transition:.1s}
+.wave-head{height:34px;display:flex;align-items:center;gap:4px;padding:0 10px;border-bottom:1px solid var(--border-l);flex-shrink:0}
+.wtab{padding:4px 12px;font-size:12px;color:var(--muted);cursor:pointer;border-radius:var(--r-sm);font-weight:500;transition:.1s}
 .wtab:hover{color:var(--text)}
-.wtab.active{background:rgba(100,136,255,.15);color:var(--accent)}
-.wave-legend{display:flex;gap:14px;flex:1;overflow-x:auto;font-size:11px;font-family:var(--mono);padding-left:6px}
-.leg{display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer;opacity:.9;transition:opacity .1s}
-.leg:hover{opacity:1}
+.wtab.active{background:var(--accent-dim);color:var(--accent)}
+.wave-legend{display:flex;gap:13px;flex:1;overflow-x:auto;font-size:11px;font-family:var(--mono);padding-left:8px}
+.leg{display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer;opacity:.85;transition:opacity .1s;color:var(--muted)}
+.leg:hover{opacity:1;color:var(--text)}
 .leg .sw{width:14px;height:3px;border-radius:2px}
 #wave-canvas{flex:1;width:100%}
 
 /* Right: AI */
 #ai{width:352px;min-width:352px;background:var(--bg-panel);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-.ai-head{height:52px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--border);flex-shrink:0}
-.ai-head .ai-ic{width:26px;height:26px;border-radius:8px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;box-shadow:0 0 16px rgba(150,120,255,.4)}
-.ai-head .t{font-weight:650;font-size:13.5px}
+.ai-head{height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--border);flex-shrink:0}
+.ai-head .ai-ic{width:24px;height:24px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:13px;color:#0a1626}
+.ai-head .t{font-weight:650;font-size:13px}
 .ai-head .st{font-size:10px;color:var(--muted);margin-left:auto;padding:4px 10px;border-radius:20px;background:var(--bg-input);border:1px solid var(--border);cursor:pointer;transition:.12s;display:flex;align-items:center;gap:5px}
 .ai-head .st::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--dim)}
-.ai-head .st:hover{border-color:#3a465c}
-.ai-head .st.live{color:var(--green);border-color:rgba(66,198,103,.4)}
-.ai-head .st.live::before{background:var(--green);box-shadow:0 0 8px var(--green)}
-#ai-log{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:11px}
-.msg{padding:10px 13px;border-radius:12px;font-size:12.5px;line-height:1.55;max-width:92%;white-space:pre-wrap;word-wrap:break-word}
-.msg.user{align-self:flex-end;background:var(--grad);color:#fff;border-bottom-right-radius:4px;box-shadow:0 2px 10px rgba(90,110,255,.25)}
-.msg.ai{align-self:flex-start;background:var(--bg-toolbar);border:1px solid var(--border);border-bottom-left-radius:4px}
+.ai-head .st:hover{border-color:#39414f}
+.ai-head .st.live{color:var(--green);border-color:rgba(63,191,108,.4)}
+.ai-head .st.live::before{background:var(--green)}
+#ai-log{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.msg{padding:9px 12px;border-radius:var(--r);font-size:12.5px;line-height:1.55;max-width:92%;white-space:pre-wrap;word-wrap:break-word}
+.msg.user{align-self:flex-end;background:var(--accent);color:#0a1626;border-bottom-right-radius:4px;font-weight:500}
+.msg.ai{align-self:flex-start;background:var(--bg-toolbar);border:1px solid var(--border-l);border-bottom-left-radius:4px}
 .msg.ai b{color:var(--teal)}
 .msg.sys{align-self:center;font-size:11px;color:var(--dim);background:none;padding:2px;text-align:center}
 .msg code{font-family:var(--mono);background:rgba(0,0,0,.4);padding:1.5px 5px;border-radius:4px;font-size:11.5px}
-.ai-chips{display:flex;flex-wrap:wrap;gap:7px;padding:10px 14px 0;flex-shrink:0;max-height:76px;overflow-y:auto}
-.chip{font-size:11px;padding:5px 11px;border-radius:20px;background:var(--bg-input);border:1px solid var(--border);cursor:pointer;color:var(--muted);transition:.12s}
-.chip:hover{border-color:var(--accent-2);color:var(--text);background:var(--bg-hover)}
+.msg.user code{background:rgba(10,22,38,.2)}
+.ai-chips{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 0;flex-shrink:0;max-height:76px;overflow-y:auto}
+.chip{font-size:11px;padding:4px 10px;border-radius:20px;background:transparent;border:1px solid var(--border);cursor:pointer;color:var(--muted);transition:.12s}
+.chip:hover{border-color:var(--accent-brd);color:var(--text);background:var(--bg-hover)}
 .ai-input{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--border);flex-shrink:0;align-items:flex-end;background:var(--bg-panel)}
-.ai-input input,.ai-input textarea{flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:10px;padding:9px 12px;color:var(--text);font-size:12.5px;outline:none;font-family:var(--ui);resize:none;max-height:180px;min-height:38px;line-height:1.45;transition:border-color .13s}
+.ai-input input,.ai-input textarea{flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r);padding:9px 12px;color:var(--text);font-size:12.5px;outline:none;font-family:var(--ui);resize:none;max-height:180px;min-height:38px;line-height:1.45;transition:border-color .13s}
 .ai-input input::placeholder,.ai-input textarea::placeholder{color:var(--dim)}
-.ai-input input:focus,.ai-input textarea:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px rgba(181,140,255,.12)}
-.ai-input button{background:var(--grad);border:none;border-radius:10px;width:40px;min-height:38px;color:#fff;font-weight:700;cursor:pointer;font-size:15px;transition:filter .12s,transform .05s;box-shadow:0 2px 10px rgba(120,120,255,.3)}
+.ai-input input:focus,.ai-input textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.ai-input button{background:var(--accent);border:none;border-radius:var(--r);width:38px;min-height:38px;color:#0a1626;font-weight:700;cursor:pointer;font-size:15px;transition:filter .12s,transform .05s}
 .ai-input button:hover{filter:brightness(1.1)}
 .ai-input button:active{transform:translateY(1px)}
 
@@ -142,25 +156,25 @@ button{font-family:inherit}
 .modal button.ok:hover{filter:brightness(1.08);background:var(--accent)}
 
 /* view tabs + PCB */
-#tabs{height:38px;min-height:38px;background:var(--bg-deep);border-bottom:1px solid var(--border);display:flex;align-items:stretch;gap:3px;padding:0 12px;flex-shrink:0}
-.vtab{display:flex;align-items:center;gap:7px;padding:0 15px;font-size:12.5px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;font-weight:500;transition:color .12s}
+#tabs{height:36px;min-height:36px;background:var(--bg-deep);border-bottom:1px solid var(--border);display:flex;align-items:stretch;gap:2px;padding:0 12px;flex-shrink:0}
+.vtab{display:flex;align-items:center;gap:7px;padding:0 14px;font-size:12.5px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;font-weight:500;transition:color .12s}
 .vtab:hover{color:var(--text)}
 .vtab.active{color:var(--text);border-bottom-color:var(--accent)}
 .vtab.soon{opacity:.45;cursor:default}
 .vtab.soon:hover{color:var(--muted)}
-.vtab .tag{font-size:9px;background:var(--bg-toolbar);border:1px solid var(--border);border-radius:20px;padding:1.5px 7px;color:var(--muted);font-weight:600;letter-spacing:.3px}
+.vtab .tag{font-size:9px;background:var(--bg-toolbar);border:1px solid var(--border);border-radius:20px;padding:1.5px 7px;color:var(--dim);font-weight:600;letter-spacing:.3px}
 #body.hide{display:none}
 #pcb-view{flex:1;display:none;flex-direction:column;min-height:0}
 #pcb-view.show{display:flex}
-#pcb-bar{height:34px;background:var(--bg-toolbar);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0;font-size:12px}
-#pcb-bar .stat{color:var(--muted);font-family:var(--mono)}
-#pcb-bar .stat b{color:var(--amber)}
-#pcb-bar button{height:26px;padding:0 10px;background:var(--bg-panel);border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;font-size:12px}
-#pcb-bar button:hover{border-color:var(--blue)}
-#pcb-wrap{flex:1;position:relative;overflow:hidden;background:#0a140a}
+#pcb-bar,#bb-bar,#fw-bar{height:36px;background:var(--bg-toolbar);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;padding:0 10px;flex-shrink:0;font-size:12px}
+#pcb-bar .stat,#bb-bar .stat,#fw-bar .stat{color:var(--muted);font-family:var(--mono)}
+#pcb-bar .stat b,#bb-bar .stat b{color:var(--text)}
+#pcb-bar button,#bb-bar button,#fw-bar button{height:27px;padding:0 11px;background:transparent;border:1px solid transparent;border-radius:var(--r-sm);color:var(--muted);cursor:pointer;font-size:12px;font-weight:500;transition:background .12s,color .12s}
+#pcb-bar button:hover,#bb-bar button:hover,#fw-bar button:hover{background:var(--bg-hover);color:var(--text)}
+#pcb-wrap{flex:1;position:relative;overflow:hidden;background:#0a0f0a}
 #pcb-canvas{position:absolute;inset:0;cursor:default}
-#pcb-bar button.pmode.active{background:rgba(56,139,253,.18);border-color:var(--blue);color:var(--blue)}
-#pcb-bar select{height:26px;background:var(--bg-panel);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:12px;padding:0 4px}
+#pcb-bar button.pmode.active{background:var(--accent-dim);border-color:var(--accent-brd);color:var(--accent)}
+#pcb-bar select{height:27px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;padding:0 4px}
 .pcb-layers{display:flex;gap:4px;align-items:center}
 .pcb-layers .lyr{height:24px;padding:0 8px 0 6px;display:inline-flex;align-items:center;gap:5px;background:var(--bg-panel);border:1px solid var(--border);border-radius:20px;color:var(--dim);cursor:pointer;font-size:11px}
 .pcb-layers .lyr::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--lc);opacity:.35}
@@ -170,19 +184,13 @@ button{font-family:inherit}
 #pcb-drc.ok{color:var(--green)}#pcb-drc.bad{color:var(--amber)}
 #bb-view{flex:1;display:none;flex-direction:column;min-height:0}
 #bb-view.show{display:flex}
-#bb-bar{height:34px;background:var(--bg-toolbar);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0;font-size:12px}
-#bb-bar .stat{color:var(--muted);font-family:var(--mono)}#bb-bar .stat b{color:var(--amber)}
-#bb-bar button{height:26px;padding:0 10px;background:var(--bg-panel);border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;font-size:12px}
-#bb-bar button:hover{border-color:var(--blue)}
-#bb-wrap{flex:1;position:relative;overflow:hidden;background:#141821}
+#bb-wrap{flex:1;position:relative;overflow:hidden;background:#12151c}
 #bb-canvas{position:absolute;inset:0}
 #fw-view{flex:1;display:none;flex-direction:column;min-height:0}
 #fw-view.show{display:flex}
-#fw-bar{height:36px;background:var(--bg-toolbar);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0;font-size:12px}
-#fw-bar button{height:26px;padding:0 12px;background:var(--bg-panel);border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;font-size:12px}
+#fw-bar button#fw-run{border:1px solid var(--border);color:var(--text)}
 #fw-bar button#fw-run.on{background:var(--red);border-color:var(--red);color:#fff}
-#fw-bar button:hover{border-color:var(--blue)}
-#fw-bar select{background:var(--bg-panel);border:1px solid var(--border);border-radius:4px;color:var(--text);height:22px}
+#fw-bar select{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);height:24px}
 #fw-body{flex:1;display:flex;min-height:0}
 #fw-code{flex:1;background:#0d1117;color:#e6edf3;border:none;outline:none;padding:14px;font-family:var(--mono);font-size:13px;line-height:1.5;resize:none}
 #fw-board{width:320px;min-width:320px;background:var(--bg-panel);border-left:1px solid var(--border);display:flex;flex-direction:column;padding:16px;gap:12px;overflow:auto}
@@ -200,21 +208,27 @@ button{font-family:inherit}
 <body>
 <div id="app">
   <div id="header">
-    <div class="logo"><span class="dot"></span>Spice<span>Studio</span> AI</div>
-    <button class="hbtn" onclick="newSheet()">＋ New</button>
+    <div class="logo"><span class="dot"></span>Spice<span>Studio</span></div>
+    <button class="hbtn" onclick="newSheet()">New</button>
+    <button class="hbtn" title="Open a saved design" onclick="openFile()">Open</button>
+    <button class="hbtn" title="Save to a file (Ctrl+S)" onclick="saveFile()">Save</button>
+    <div class="tsep"></div>
     <button class="hbtn icon" id="h-undo" title="Undo (Ctrl+Z)" onclick="undo()">↶</button>
     <button class="hbtn icon" id="h-redo" title="Redo (Ctrl+Shift+Z)" onclick="redo()">↷</button>
-    <button class="hbtn" title="Open a saved design" onclick="openFile()">📂 Open</button>
-    <button class="hbtn" title="Save to a file (Ctrl+S)" onclick="saveFile()">💾 Save</button>
     <div class="tsep"></div>
-    <button class="hbtn" onclick="loadDemo('rc')">RC Filter</button>
-    <button class="hbtn" onclick="loadDemo('rect')">Rectifier</button>
-    <button class="hbtn" onclick="loadDemo('led')">LED Driver</button>
+    <div class="menu" id="demo-menu">
+      <button class="hbtn" onclick="toggleMenu('demo-menu',event)">Examples ▾</button>
+      <div class="menu-list">
+        <button onclick="toggleMenu('demo-menu');loadDemo('rc')">RC low-pass filter <span class="mk">AC</span></button>
+        <button onclick="toggleMenu('demo-menu');loadDemo('rect')">Half-wave rectifier <span class="mk">TRAN</span></button>
+        <button onclick="toggleMenu('demo-menu');loadDemo('led')">LED driver <span class="mk">DC</span></button>
+      </div>
+    </div>
     <div class="spacer"></div>
     <span class="status" id="status">Ready · <b id="nl-count">0</b> parts</span>
-    <button class="hbtn run" onclick="runSim('tran')">▶ Transient</button>
-    <button class="hbtn" onclick="runSim('ac')">∿ AC Sweep</button>
-    <button class="hbtn" onclick="runSim('dc')">= DC Op</button>
+    <button class="hbtn" onclick="runSim('dc')">DC Op</button>
+    <button class="hbtn" onclick="runSim('ac')">AC Sweep</button>
+    <button class="hbtn run" onclick="runSim('tran')">▶ Run Transient</button>
   </div>
 
   <div id="tabs">
@@ -236,15 +250,15 @@ button{font-family:inherit}
       <div id="toolbar">
         <div class="tool active" id="t-select" title="Select / Move (V)" onclick="setTool('select')">⭶</div>
         <div class="tool" id="t-wire" title="Wire (W)" onclick="setTool('wire')">╱</div>
-        <div class="tool" id="t-delete" title="Delete (Del)" onclick="setTool('delete')">🗑</div>
-        <div class="tool" id="t-probe" title="Probe a node (P) — click a wire/pin to plot its voltage" onclick="setTool('probe')">◎</div>
+        <div class="tool" id="t-delete" title="Delete (Del)" onclick="setTool('delete')">✕</div>
+        <div class="tool" id="t-probe" title="Probe a node (P) - click a wire/pin to plot its voltage" onclick="setTool('probe')">◎</div>
         <div class="tsep"></div>
         <div class="tool" title="Rotate selected (R)" onclick="rotateSel()">⟳</div>
         <div class="tool" title="Zoom in" onclick="zoom(1.2)">＋</div>
         <div class="tool" title="Zoom out" onclick="zoom(1/1.2)">－</div>
         <div class="tool" title="Fit" onclick="zoomFit()">⊡</div>
         <div class="tsep"></div>
-        <div class="tool" id="t-flow" title="Animate current flow (F) — moving dots show conventional current after a sim" onclick="toggleFlow()">⚡</div>
+        <div class="tool" id="t-flow" title="Animate current flow (F) - moving dots show conventional current after a sim" onclick="toggleFlow()">↯</div>
         <div class="tsep"></div>
         <span class="tool-lbl" id="tool-hint">Drag a part from the left, then wire pins together</span>
         <div class="spacer" style="flex:1"></div>
@@ -276,7 +290,7 @@ button{font-family:inherit}
       <div class="ai-chips" id="ai-chips"></div>
       <div class="ai-input">
         <textarea id="ai-in" rows="1" placeholder="Ask, design, or paste a netlist…" title="Enter to send · Shift+Enter for a newline" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiSend();}"></textarea>
-        <button onclick="aiSend()">➤</button>
+        <button onclick="aiSend()" title="Send (Enter)">↑</button>
       </div>
     </div>
   </div>
@@ -297,7 +311,7 @@ button{font-family:inherit}
         <button class="lyr on" style="--lc:#cfd3d6" onclick="pcbToggleLayer('drill',this)">Drill</button>
         <button class="lyr on" style="--lc:#d8b24a" onclick="pcbToggleLayer('outline',this)">Edge</button>
       </span>
-      <span class="stat" id="pcb-stat">—</span>
+      <span class="stat" id="pcb-stat">-</span>
       <span id="pcb-drc"></span>
       <div class="spacer" style="flex:1"></div>
       <button onclick="pcbAutoPlace()">⟲ Auto-place</button>
@@ -313,7 +327,7 @@ button{font-family:inherit}
   <!-- Breadboard view (Phase 2): solderless board, connectivity mirrors the schematic netlist -->
   <div id="bb-view">
     <div id="bb-bar">
-      <span class="stat" id="bb-stat">—</span>
+      <span class="stat" id="bb-stat">-</span>
       <div class="spacer" style="flex:1"></div>
       <span class="stat" style="color:var(--dim)">auto-built from the schematic · same nets = same column, power/gnd → rails</span>
       <button onclick="bbZoom(1.15)">＋</button>
@@ -322,7 +336,7 @@ button{font-family:inherit}
     <div id="bb-wrap"><canvas id="bb-canvas"></canvas></div>
   </div>
 
-  <!-- Firmware view (Phase 3 v1): JS Arduino runtime — write a sketch, pins drive a live LED -->
+  <!-- Firmware view (Phase 3 v1): JS Arduino runtime - write a sketch, pins drive a live LED -->
   <div id="fw-view">
     <div id="fw-bar">
       <button id="fw-run" onclick="fwToggle()">▶ Run</button>
@@ -331,7 +345,7 @@ button{font-family:inherit}
       <span class="stat" id="fw-status" style="color:var(--dim)">idle</span>
     </div>
     <div id="fw-body">
-      <textarea id="fw-code" spellcheck="false">// Arduino blink — the LED (pin 13) toggles every 500ms
+      <textarea id="fw-code" spellcheck="false">// Arduino blink - the LED (pin 13) toggles every 500ms
 void setup() {
   pinMode(13, OUTPUT);
   Serial.begin(9600);
@@ -358,7 +372,7 @@ void loop() {
 <div class="modal-bg" id="key-modal">
   <div class="modal">
     <h3>Connect Claude (optional)</h3>
-    <p>Paste an Anthropic API key to put a real LLM at the center — it can design and edit circuits, and explain results. Stored only in this browser (localStorage). Leave empty to use the built-in local intelligence.</p>
+    <p>Paste an Anthropic API key to put a real LLM at the center - it can design and edit circuits, and explain results. Stored only in this browser (localStorage). Leave empty to use the built-in local intelligence.</p>
     <input id="key-in" placeholder="sk-ant-…" autocomplete="off">
     <input id="model-in" placeholder="claude-opus-4-8" value="claude-opus-4-8">
     <div class="mrow">
@@ -396,7 +410,7 @@ function solveComplex(A,b){const n=b.length;const M=A.map(r=>r.map(c=>({re:c.re,
       for(let c=col;c<n;c++)M[r][c]=csub(M[r][c],cmul(f,M[col][c]));x[r]=csub(x[r],cmul(f,x[col]));}}
   for(let i=0;i<n;i++)x[i]=cdiv(x[i],M[i][i]);return x;}
 const VT=0.025852;
-// SPICE junction-voltage limiting — keeps Newton stable AND lets high-Vf parts (LEDs, 1.6–3.3V) turn on
+// SPICE junction-voltage limiting - keeps Newton stable AND lets high-Vf parts (LEDs, 1.6–3.3V) turn on
 function pnjlim(vnew,vold,vt,vcrit){if(vnew>vcrit&&Math.abs(vnew-vold)>2*vt){if(vold>0){const arg=1+(vnew-vold)/vt;vnew=arg>0?vold+vt*Math.log(arg):vcrit;}else{vnew=vnew>0?vt*Math.log(vnew/vt):vnew;}}return vnew;}
 // MOSFET Level-1 (Shichman-Hodges) → {id (D->S signed), gm, gds}. Handles nmos/pmos.
 function mosfet(type,vgs,vds,p){const Kp=p.Kp??2e-5,WL=(p.W??1e-5)/(p.L??1e-6),lam=p.lambda??0,beta=Kp*WL;
@@ -528,11 +542,11 @@ class Circuit{
 }
 
 /* ============================================================================
-   2. COMPONENT LIBRARY — real SPICE model cards (learned from LTspice/Würth libs)
+   2. COMPONENT LIBRARY - real SPICE model cards (learned from LTspice/Würth libs)
    Each 2-pin part: pins at (-1,0),(+1,0) grid units around center; W=2 cells.
    ============================================================================ */
 const MODELS={
-  // Diodes — authentic SPICE .model params
+  // Diodes - authentic SPICE .model params
   '1N4148':{Is:2.52e-9,N:1.752},   '1N4007':{Is:7.02e-9,N:1.8},
   'LEDred':{Is:1e-16,N:1.9},'LEDgrn':{Is:5e-18,N:2.0},'LEDblu':{Is:1e-19,N:2.2},'LEDyel':{Is:1e-17,N:2.0},
   '1N5819':{Is:3.2e-7,N:1.05}, // schottky
@@ -609,7 +623,7 @@ const S={
   sel:null, tool:'select', zoom:1, ox:120, oy:80,
   drag:null, wireStart:null, mouse:{x:0,y:0},
   refCount:{}, sim:null, ac:null, waveView:'tran', probes:[], nets:null,
-  labels:[],     // {x,y,name} net labels — force a pin's net (like KiCad labels)
+  labels:[],     // {x,y,name} net labels - force a pin's net (like KiCad labels)
   dt:1e-5, tStop:5e-3,
 };
 function addLabel(x,y,name){S.labels.push({x,y,name});}
@@ -625,7 +639,7 @@ function addComp(type,gx,gy){const P=PARTS[type];const c={uid:++uidC,type,x:gx,y
 // place with value + rotation (used by demos / AI generators; layouts verified in netlist_test.js)
 function place(type,x,y,value,r){const c=addComp(type,x,y);if(value!==undefined&&value!=='')c.value=value;if(r)c.rot=r;return c;}
 
-// pin absolute grid coords for a component (named + positioned — Phase 0)
+// pin absolute grid coords for a component (named + positioned - Phase 0)
 function pinCoords(c){const P=PARTS[c.type];
   return P.pinDefs.map(pd=>{const[rx,ry]=rot(pd.dx,pd.dy,c.rot);return{name:pd.name,x:c.x+rx,y:c.y+ry};});}
 function rot(dx,dy,r){const a=r*Math.PI/180;const cs=Math.round(Math.cos(a)),sn=Math.round(Math.sin(a));return[dx*cs-dy*sn,dx*sn+dy*cs];}
@@ -649,7 +663,7 @@ function extractNets(){
   // assign net names
   const rootName={};let auto=0;
   const nameFor=(c)=>{const P=PARTS[c.type];if(P.ground)return'0';if(P.rail)return c.ref||('R'+parseVal(c.value)+'V');return null;};
-  // first pass: forced names (ground/rail) — rail net name = the rail label like '+5V'
+  // first pass: forced names (ground/rail) - rail net name = the rail label like '+5V'
   const railNet={};
   S.comps.forEach(c=>{const P=PARTS[c.type];if(!P.ground&&!P.rail)return;const p=pinCoords(c)[0];const r=find(key(p.x,p.y));
     if(P.ground)rootName[r]='0';
@@ -707,10 +721,10 @@ function toGrid(sx,sy){return[Math.round((sx-S.ox)/(GRID*S.zoom)),Math.round((sy
 function draw(){
   const W=canvas.width,H=canvas.height;ctx.clearRect(0,0,W,H);
   // grid
-  ctx.fillStyle='#12161d';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#0b0d11';ctx.fillRect(0,0,W,H);
   const g=GRID*S.zoom;
-  if(g>6){ctx.fillStyle='#1b2028';for(let x=S.ox%g;x<W;x+=g)for(let y=S.oy%g;y<H;y+=g)ctx.fillRect(x,y,1,1);}
-  // wires — vertical drawn straight; horizontal draws hop-over arcs where it crosses a vertical wire (unambiguous = not connected)
+  if(g>6){ctx.fillStyle='#181d26';for(let x=S.ox%g;x<W;x+=g)for(let y=S.oy%g;y<H;y+=g)ctx.fillRect(x,y,1,1);}
+  // wires - vertical drawn straight; horizontal draws hop-over arcs where it crosses a vertical wire (unambiguous = not connected)
   S.wires.forEach(w=>{ctx.strokeStyle=S.nets?netColor(w):'#3fb950';ctx.lineWidth=2;drawWireHops(w);});
   // junction dots
   const jn=junctionPoints();jn.forEach(([gx,gy])=>{const[x,y]=toScreen(gx,gy);ctx.fillStyle='#3fb950';ctx.beginPath();ctx.arc(x,y,3.5,0,7);ctx.fill();});
@@ -811,7 +825,7 @@ canvas.addEventListener('mousedown',e=>{const r=canvas.getBoundingClientRect();c
     if(!S.wireStart){S.wireStart=pt;}else{if(S.wireStart.x!==pt.x||S.wireStart.y!==pt.y)routeWire(S.wireStart,pt);S.wireStart=(pin?null:pt);if(pin)S.wireStart=null;}draw();return;}
   if(S.tool==='delete'){const c=hitComp(sx,sy);if(c){S.comps=S.comps.filter(x=>x!==c);S.sel=null;}else{const w=hitWire(gx,gy);if(w)S.wires=S.wires.filter(x=>x!==w);}invalidate();draw();return;}
   if(S.tool==='probe'){probeAt(gx,gy);return;}
-  // select/move — click a part to drag it; click empty space to PAN the whole view
+  // select/move - click a part to drag it; click empty space to PAN the whole view
   const c=hitComp(sx,sy);S.sel=c;
   if(c){S.drag={c,startX:sx,startY:sy,ox:c.x,oy:c.y};}
   else{S.pan={sx,sy,ox:S.ox,oy:S.oy};canvas.style.cursor='grabbing';}
@@ -833,6 +847,8 @@ function routeWire(a,b){ // L-route: horizontal then vertical
   else S.wires.push({x1:a.x,y1:a.y,x2:b.x,y2:b.y});invalidate();}
 function invalidate(){S.nets=null;S.sim=null;S.flowData=null;updateStatus();autosave();}
 
+function toggleMenu(id,e){if(e)e.stopPropagation();const m=document.getElementById(id);if(m)m.classList.toggle('open');}
+document.addEventListener('click',e=>{document.querySelectorAll('.menu.open').forEach(m=>{if(!m.contains(e.target))m.classList.remove('open');});});
 function setTool(t){S.tool=t;S.wireStart=null;['select','wire','delete','probe'].forEach(x=>document.getElementById('t-'+x).classList.toggle('active',x===t));
   canvas.style.cursor=(t==='wire'||t==='probe')?'crosshair':(t==='delete'?'not-allowed':'default');
   const th=document.getElementById('tool-hint');if(th)th.textContent={select:'Drag to move · double-click to edit values',wire:'Click a pin, then click another pin or point',delete:'Click a component or wire to delete',probe:'Click a wire or pin to plot its node voltage · click a probe again to remove'}[t];draw();}
@@ -850,8 +866,8 @@ function netAtPoint(gx,gy){
 }
 function probeAt(gx,gy){
   const nm=netAtPoint(gx,gy);
-  if(!nm){setStatus('No node there — click directly on a wire or a pin',false);return;}
-  if(nm==='0'){setStatus('Ground (0V) is the reference — probe another node',false);return;}
+  if(!nm){setStatus('No node there - click directly on a wire or a pin',false);return;}
+  if(nm==='0'){setStatus('Ground (0V) is the reference - probe another node',false);return;}
   const i=S.probes.findIndex(p=>p.net===nm);
   if(i>=0)S.probes.splice(i,1); else S.probes.push({net:nm,x:gx,y:gy});
   setStatus((S.probes.length?S.probes.length+' probe'+(S.probes.length>1?'s':''):'probes cleared')+' · '+S.comps.length,true);
@@ -922,7 +938,7 @@ function toggleFlow(){if(S.flowOn)stopFlow();else if(S.sim)startFlow();else setS
 function rotateSel(){if(S.sel){S.sel.rot=(S.sel.rot+90)%360;invalidate();draw();}}
 function zoom(f){S.zoom=Math.max(0.4,Math.min(3,S.zoom*f));draw();}
 function zoomFit(){ // frame the whole circuit (components + wires) into view
-  if(!canvas.width||!canvas.height)return;   // canvas not laid out yet (boot) — skip; a deferred fit runs after first paint
+  if(!canvas.width||!canvas.height)return;   // canvas not laid out yet (boot) - skip; a deferred fit runs after first paint
   const pts=[];S.comps.forEach(c=>{pts.push({x:c.x,y:c.y});pinCoords(c).forEach(p=>pts.push(p));});
   S.wires.forEach(w=>{pts.push({x:w.x1,y:w.y1});pts.push({x:w.x2,y:w.y2});});
   if(!pts.length){S.zoom=1;S.ox=120;S.oy=80;draw();return;}
@@ -955,11 +971,11 @@ function hideProps(){document.getElementById('props').style.display='none';}
 function distinctNets(){const set=new Set();if(!S.nets)return[];S.nets.pinNet.forEach(v=>{if(v!=='0')set.add(v);});return[...set];}
 function runSim(kind){
   const{ckt,nets}=buildCircuit(kind==='ac');S.nets=nets;
-  if(ckt.elements.length===0){aiPush('sys','Nothing to simulate — drag some parts and wire them.');draw();return;}
+  if(ckt.elements.length===0){aiPush('sys','Nothing to simulate - drag some parts and wire them.');draw();return;}
   try{
     if(kind==='dc'){const op=ckt.dcOP();S.sim={dc:op.V};setStatus(op.conv?'DC solved':'DC (no converge)',op.conv);draw();startFlow();autoDiagnose('dc',op);return;}
     if(kind==='ac'){const nlNodes=distinctNets();const r=ckt.ac(1,1e6,300);S.ac=r;S.waveView='ac';setWaveView('ac');setStatus('AC sweep 1Hz–1MHz done',true);autoDiagnose('ac',r);return;}
-    // transient — choose dt/tStop from fastest source
+    // transient - choose dt/tStop from fastest source
     autoTiming(ckt);const r=ckt.transient(S.tStop,S.dt,{uic:true});
     S.sim={trace:r.trace,times:r.times,finalV:{}};distinctNets().forEach(nm=>S.sim.finalV[nm]=r.trace[nm]?r.trace[nm][r.trace[nm].length-1]:0);
     S.waveView='tran';setWaveView('tran');const dl=document.getElementById('dt-lbl');if(dl)dl.textContent=fmtEng(S.dt)+'s';
@@ -975,9 +991,9 @@ function fmtEng(v){const a=Math.abs(v);if(a>=1)return v.toFixed(2);if(a>=1e-3)re
 
 function setWaveView(v){S.waveView=v;document.getElementById('wt-tran').classList.toggle('active',v==='tran');document.getElementById('wt-ac').classList.toggle('active',v==='ac');drawWave();}
 const PLOT_COLORS=['#3fb950','#388bfd','#f85149','#d29922','#bc8cff','#39d353','#79c0ff'];
-function drawWave(){const W=wcanvas.width,H=wcanvas.height;wctx.clearRect(0,0,W,H);wctx.fillStyle='#0d1117';wctx.fillRect(0,0,W,H);
+function drawWave(){const W=wcanvas.width,H=wcanvas.height;wctx.clearRect(0,0,W,H);wctx.fillStyle='#0a0c10';wctx.fillRect(0,0,W,H);
   const PAD={l:52,r:14,t:12,b:22};const pw=W-PAD.l-PAD.r,ph=H-PAD.t-PAD.b;
-  wctx.strokeStyle='#21262d';wctx.lineWidth=1;wctx.strokeRect(PAD.l,PAD.t,pw,ph);
+  wctx.strokeStyle='#20262f';wctx.lineWidth=1;wctx.strokeRect(PAD.l,PAD.t,pw,ph);
   const legend=document.getElementById('wave-legend');legend.innerHTML='';
   const probed=(S.probes||[]).map(p=>p.net);
   const colFor=(nm,i)=>{const pi=probed.indexOf(nm);return PLOT_COLORS[((pi>=0?pi:i))%PLOT_COLORS.length];};
@@ -998,7 +1014,9 @@ function drawWave(){const W=wcanvas.width,H=wcanvas.height;wctx.clearRect(0,0,W,
     nets.forEach((nm,i)=>{const col=colFor(nm,i);wctx.strokeStyle=col;wctx.lineWidth=1.8;wctx.beginPath();
       S.ac.out[nm].forEach((c,j)=>{const db=20*Math.log10(cabs(c)+1e-12);const x=PAD.l+pw*(Math.log10(fs[j])-lf0)/(lf1-lf0),y=PAD.t+ph*(1-(db-mMin)/(mMax-mMin));j?wctx.lineTo(x,y):wctx.moveTo(x,y);});wctx.stroke();
       legend.innerHTML+=legTag(col,nm,' (dB)');});
-  }else{wctx.fillStyle='#484f58';wctx.font='12px var(--mono)';wctx.textAlign='center';wctx.fillText('Run a simulation to see waveforms',W/2,H/2);}
+  }else{wctx.fillStyle='#5d6570';wctx.font='12px Consolas,monospace';wctx.textAlign='center';
+    wctx.fillText('No traces yet',W/2,H/2-8);
+    wctx.fillStyle='#3d434d';wctx.fillText('Run Transient or AC Sweep, then probe nodes with the ◎ tool',W/2,H/2+12);}
 }
 function gridY(vMin,vMax,P,pw,ph,unit){wctx.fillStyle='#6e7681';wctx.font='10px var(--mono)';wctx.textAlign='right';wctx.strokeStyle='#1b222b';
   for(let i=0;i<=4;i++){const v=vMin+(vMax-vMin)*i/4;const y=P.t+ph*(1-i/4);wctx.beginPath();wctx.moveTo(P.l,y);wctx.lineTo(P.l+pw,y);wctx.stroke();wctx.fillText(v.toFixed(1),P.l-5,y+3);}}
@@ -1008,18 +1026,18 @@ function gridXlog(f0,f1,P,pw,ph){wctx.fillStyle='#6e7681';wctx.textAlign='center
     const f=Math.pow(10,d);wctx.fillText(f>=1e3?(f/1e3)+'k':f+'',x,P.t+ph+14);}}
 
 /* ============================================================================
-   7. AI COPILOT — local intelligence engine + optional Claude API
+   7. AI COPILOT - local intelligence engine + optional Claude API
    ============================================================================ */
 let AI_KEY=localStorage.getItem('ss_key')||'';let AI_MODEL=localStorage.getItem('ss_model')||'claude-opus-4-8';
 // optional local dev convenience: auto-connect a key from a gitignored key.local.json next to this file (never committed)
 function loadLocalKey(){if(AI_KEY||typeof fetch==='undefined')return;
   fetch('key.local.json',{cache:'no-store'}).then(r=>(r&&r.ok)?r.json():null).then(k=>{if(!k||!k.key||AI_KEY)return;
     AI_KEY=k.key;if(k.model)AI_MODEL=k.model;localStorage.setItem('ss_key',AI_KEY);localStorage.setItem('ss_model',AI_MODEL);
-    if(typeof refreshAIStatus==='function')refreshAIStatus();try{aiPush('sys','🔑 Connected from local key.local.json — the AI copilot is live.');}catch(_){}}).catch(()=>{});}
+    if(typeof refreshAIStatus==='function')refreshAIStatus();try{aiPush('sys','🔑 Connected from local key.local.json - the AI copilot is live.');}catch(_){}}).catch(()=>{});}
 function refreshAIStatus(){const el=document.getElementById('ai-status');if(!el)return;if(AI_KEY){el.textContent='Claude '+AI_MODEL.replace('claude-','');el.classList.add('live');}else{el.textContent='local engine';el.classList.remove('live');}}
 function openKeyModal(){document.getElementById('key-in').value=AI_KEY;document.getElementById('model-in').value=AI_MODEL;document.getElementById('key-modal').style.display='flex';}
 function closeKeyModal(){document.getElementById('key-modal').style.display='none';}
-function saveKey(){AI_KEY=document.getElementById('key-in').value.trim();AI_MODEL=document.getElementById('model-in').value.trim()||'claude-opus-4-8';localStorage.setItem('ss_key',AI_KEY);localStorage.setItem('ss_model',AI_MODEL);refreshAIStatus();closeKeyModal();aiPush('sys',AI_KEY?'Claude connected — I can now design & edit circuits from natural language.':'Using local engine.');}
+function saveKey(){AI_KEY=document.getElementById('key-in').value.trim();AI_MODEL=document.getElementById('model-in').value.trim()||'claude-opus-4-8';localStorage.setItem('ss_key',AI_KEY);localStorage.setItem('ss_model',AI_MODEL);refreshAIStatus();closeKeyModal();aiPush('sys',AI_KEY?'Claude connected - I can now design & edit circuits from natural language.':'Using local engine.');}
 
 function aiPush(role,text){const log=document.getElementById('ai-log');const d=document.createElement('div');d.className='msg '+role;d.innerHTML=text;log.appendChild(d);log.scrollTop=log.scrollHeight;}
 const CHIPS=['Design a 1kHz low-pass filter','Add an LED with a current-limit resistor','Why is my LED current too high?','Explain this circuit','Make a full-wave rectifier','Bias an NPN? (roadmap)'];
@@ -1027,16 +1045,16 @@ function initChips(){const el=document.getElementById('ai-chips');CHIPS.forEach(
 
 async function aiSend(){const inp=document.getElementById('ai-in');const q=inp.value.trim();if(!q)return;inp.value='';aiPush('user',esc(q));
   try{
-    if(looksStructured(q)){const sp=parseStructured(q);if(sp.parts.length){buildFromSpec(sp);aiPush('ai',`Imported your structured netlist — <b>${sp.parts.length} parts</b> across <b>${sp.nets.length} nets</b>, auto-routed and simulated.`);}else aiPush('sys','Read the COMPONENTS/NETS block but found no components.');return;}
+    if(looksStructured(q)){const sp=parseStructured(q);if(sp.parts.length){buildFromSpec(sp);aiPush('ai',`Imported your structured netlist - <b>${sp.parts.length} parts</b> across <b>${sp.nets.length} nets</b>, auto-routed and simulated.`);}else aiPush('sys','Read the COMPONENTS/NETS block but found no components.');return;}
     if(looksLikeSpice(q)){importSpice(q);return;}   // pasted a SPICE netlist → build + simulate it
     if(tryConstructIntent(q))return;                // circuits with a built-in builder (reliable even with a key)
     if(!AI_KEY&&beyondLocal(q)){                     // complex system with no builder → be honest, DON'T shoehorn a wrong template
-      aiPush('sys','⚠ That looks like a multi-stage system (PLL / Gilbert cell / mixer / VCO …). My built-in templates can\'t synthesize it, and I won\'t fake it with the nearest template.<br><b>To build ANY circuit from a description, connect your Anthropic key</b> — click the <b>✦ badge, top-right</b> of this panel. The layout router already handles feedback loops and grids; the limit is that open-ended circuit <i>synthesis</i> needs the AI model.');return;}
+      aiPush('sys','⚠ That looks like a multi-stage system (PLL / Gilbert cell / mixer / VCO …). My built-in templates can\'t synthesize it, and I won\'t fake it with the nearest template.<br><b>To build ANY circuit from a description, connect your Anthropic key</b> - click the <b>✦ badge, top-right</b> of this panel. The layout router already handles feedback loops and grids; the limit is that open-ended circuit <i>synthesis</i> needs the AI model.');return;}
     if(AI_KEY){await aiClaude(q);}else{aiLocal(q);}
-  }catch(err){console.error(err);aiPush('sys','⚠ '+(err&&err.message||err)+' — try reloading the page (Ctrl+Shift+R).');}}
+  }catch(err){console.error(err);aiPush('sys','⚠ '+(err&&err.message||err)+' - try reloading the page (Ctrl+Shift+R).');}}
 function beyondLocal(q){const l=q.toLowerCase();
   return /\b(pll|phase[-\s]?locked|gilbert|vco|phase detector|four[-\s]?quadrant|mixer|state[-\s]?variable|schmitt|flip[-\s]?flop|shift register|charge pump|superheterodyne|ring oscillator|wien bridge|3[-\s]?phase|three[-\s]?phase|bldc|inverter bridge)\b/.test(l)
-    || /\b(half[-\s]?adder|full[-\s]?adder|adder|subtractor|multiplexer|mux|demultiplexer|demux|decoder|encoder|alu|counter|latch|register|comparator|multiplier|sram|dram|d[-\s]?flip|sr[-\s]?latch|state machine)\b/.test(l)   // multi-gate digital blocks — need the AI model, not a fixed template
+    || /\b(half[-\s]?adder|full[-\s]?adder|adder|subtractor|multiplexer|mux|demultiplexer|demux|decoder|encoder|alu|counter|latch|register|comparator|multiplier|sram|dram|d[-\s]?flip|sr[-\s]?latch|state machine)\b/.test(l)   // multi-gate digital blocks - need the AI model, not a fixed template
     || (l.match(/stage\s*\d/gi)||[]).length>=2; }
 
 /* ---- context the AI sees: real netlist + real sim summary ---- */
@@ -1157,7 +1175,7 @@ function routeColumns(netPins){
 /* ---- SPICE NETLIST IMPORT: paste a real netlist → build + simulate (no key needed) ---- */
 function looksLikeSpice(q){
   if(/^\s*\.(model|ac|tran|op|dc|end|include|lib|subckt)\b/im.test(q))return true;
-  // a real element line: designator that CONTAINS A DIGIT (R1, M2, Q3…) — rejects prose verbs (Design/Construct/Ensure), no sentence punctuation, and a numeric/model value
+  // a real element line: designator that CONTAINS A DIGIT (R1, M2, Q3…) - rejects prose verbs (Design/Construct/Ensure), no sentence punctuation, and a numeric/model value
   const isElem=l=>{const t=l.trim().split(/\s+/);
     if(t.length<3||t.length>10)return false;
     if(!/^[RCLKMQVIDE][A-Za-z_]*\d\w*$/.test(t[0]))return false;
@@ -1179,16 +1197,16 @@ function parseStructured(q){
     if(/sine/.test(v))return['VAC',val];if(/ac[_ ]?source|^ac$/.test(v))return['VAC','sine 10 60'];   // AC source (default 10V 60Hz if unspecified)
     if(/pulse/.test(v))return['VPULSE',val];
     if(/fuse/.test(v))return['R','0.01'];                                  // fuse ≈ near-zero-ohm link (over-current blow not modelled)
-    if(/tvs|zener|varistor|\bmov\b/.test(v))return['D',val];                // clamp/transient-suppressor as a diode — keep the user's part/model string as the label
+    if(/tvs|zener|varistor|\bmov\b/.test(v))return['D',val];                // clamp/transient-suppressor as a diode - keep the user's part/model string as the label
     if(/diode/.test(v))return['D',val];
     const c=name[0].toUpperCase();return({R:['R',val],C:['C',val],L:['L',val],V:['V',val],I:['I',val],D:['D',''],M:['NMOS',''],Q:['NPN','']})[c]||['R',val];};
   q.split(/\r?\n/).forEach(line=>{line=line.trim();
     if(/^components\s*:/i.test(line)){section='c';return;}if(/^nets\s*:/i.test(line)){section='n';return;}
     if(/^layout\s*:/i.test(line)){section='l';return;}
-    // comment lines (start with * or //): skip — but a "COLUMN <n>" marker opens a new placement column
+    // comment lines (start with * or //): skip - but a "COLUMN <n>" marker opens a new placement column
     if(/^(\*|\/\/)/.test(line)){const cm=line.match(/column[_ ]?(\d+)/i);if(cm)curCol=parseInt(cm[1])-1;return;}
     if(!line)return;
-    // explicit layout directives (may appear in any section) — capture instead of misreading them as parts
+    // explicit layout directives (may appear in any section) - capture instead of misreading them as parts
     const dm=line.match(/^(force_components|alignment|arrangement|column_x_coordinate|column_y_start|column_(\d+)_x|grid_mode)\s*=\s*(.+)$/i);
     if(dm){const k=dm[1].toLowerCase(),val=(dm[3]||'').trim();
       if(k==='force_components')layout.forced=val.split(',').map(s=>s.trim()).filter(s=>s&&!/^(ground|gnd)$/i.test(s));
@@ -1216,14 +1234,14 @@ function parseSpice(text){
   const gnd=n=>/^(0|gnd|ground)$/i.test(n)?'0':n;
   const addN=(name,ref,pin)=>{(nets[gnd(name)]=nets[gnd(name)]||[]).push([ref,pin]);};
   const lines=text.split(/\r?\n/).map(r=>{let l=r.trim();if(l&&l[0]!=='*')l=l.split(';')[0].trim();return l;}).filter(l=>l&&l[0]!=='*');
-  // PASS 1 — directives (.model can be referenced before it appears, like real SPICE)
+  // PASS 1 - directives (.model can be referenced before it appears, like real SPICE)
   lines.forEach(line=>{const tok=line.split(/\s+/),name=tok[0];if(name[0]!=='.')return;const d=name.toLowerCase();
     if(d==='.model'){const mn=tok[1],rest=line.slice(line.indexOf(mn)+mn.length).trim();
       const tn=((rest.match(/^(\w+)/)||[])[1]||'').toUpperCase();const params={};const pm=rest.match(/\(([^)]*)\)/);
       if(pm)pm[1].split(/[\s,]+/).forEach(kv=>{const p=kv.split('=');if(p[0]&&p[1]!==undefined)params[p[0].trim().toLowerCase()]=parseVal(p[1]);});
       models[mn]={tn,params};}
     else if(d==='.ac')analysis='ac';else if(d==='.tran')analysis='tran';else if(d==='.op'||d==='.dc')analysis='dc';});
-  // PASS 2 — devices
+  // PASS 2 - devices
   lines.forEach(line=>{const tok=line.split(/\s+/),name=tok[0],t=name[0].toUpperCase();if(name[0]==='.')return;
     const vAC=()=>{const m=line.match(/\bAC\s+([-\d.eE+]+\w*)/i);return m?parseVal(m[1]):undefined;};
     const vDC=()=>{const m=line.match(/\bDC\s+([-\d.eE+]+\w*)/i);if(m)return parseVal(m[1]);const f=tok[3];return(f&&/^[-\d.]/.test(f))?parseVal(f):0;};
@@ -1253,11 +1271,11 @@ function importSpice(q){
   if(!known.length){aiPush('sys','I read the netlist but none of the devices are supported yet (BJTs/subcircuits are on the roadmap).');return;}
   spec.parts=known;buildFromSpec(spec);
   const hasMos=known.some(p=>p.type==='NMOS'||p.type==='PMOS');
-  aiPush('ai',`Imported your SPICE netlist: <b>${known.length} devices</b>, ran <code>.${spec.analysis}</code>.${hasMos?' MOSFETs use a Level-1 model (Vto/Kp/W/L/λ).':''}${skipped?` <span style="color:var(--amber)">${skipped} unsupported device(s) skipped.</span>`:''}<br>Net labels carry the wiring — drag parts to rearrange, then re-run.`);
+  aiPush('ai',`Imported your SPICE netlist: <b>${known.length} devices</b>, ran <code>.${spec.analysis}</code>.${hasMos?' MOSFETs use a Level-1 model (Vto/Kp/W/L/λ).':''}${skipped?` <span style="color:var(--amber)">${skipped} unsupported device(s) skipped.</span>`:''}<br>Net labels carry the wiring - drag parts to rearrange, then re-run.`);
 }
 /* ---- Claude path: LLM returns an abstract netlist spec → deterministic layout draws it ---- */
 async function aiClaude(q){aiPush('ai','<i>thinking…</i>');const log=document.getElementById('ai-log');const thinking=log.lastChild;
-  const sys=`You are the design intelligence inside SpiceStudio, a live browser SPICE simulator. Design the circuit the user asks for and RETURN IT as an abstract netlist — never guess pixel coordinates.
+  const sys=`You are the design intelligence inside SpiceStudio, a live browser SPICE simulator. Design the circuit the user asks for and RETURN IT as an abstract netlist - never guess pixel coordinates.
 
 Reply with a short sentence, then a fenced json block:
 \`\`\`spec
@@ -1280,7 +1298,7 @@ Keep it minimal and correct. Current sheet:\n${circuitContext()}`;
     const j=await res.json();thinking.remove();
     if(j.error){aiPush('sys','API error: '+j.error.message);return;}
     const txt=j.content.map(c=>c.text||'').join('');const m=txt.match(/```(?:spec|json)?\s*([\s\S]*?)```/);
-    aiPush('ai',esc(txt.replace(/```[\s\S]*?```/,'').trim())||'Here you go — drawn and simulated.');
+    aiPush('ai',esc(txt.replace(/```[\s\S]*?```/,'').trim())||'Here you go - drawn and simulated.');
     if(m){try{buildFromSpec(JSON.parse(m[1]));}catch(e){aiPush('sys','Could not parse the circuit spec: '+e.message);}}
     else aiPush('sys','The AI replied but did not return a circuit spec. Try rephrasing as a specific circuit.');
   }catch(e){thinking.remove();aiPush('sys','Network error: '+e.message+'. Check the API key (top-right ✦) and your connection.');}
@@ -1324,7 +1342,7 @@ function buildLogicGate(kind){
   if(kind==='and'){
     spec={parts:[{ref:'VCC',type:'VCC',value:'5'},{ref:'R1',type:'R',value:'10k'},{ref:'A',type:'VPULSE',value:A},{ref:'B',type:'VPULSE',value:B},{ref:'D1',type:'D',value:'1N4148'},{ref:'D2',type:'D',value:'1N4148'}],
       nets:[{name:'+5V',connect:[['VCC',0],['R1',0]]},{name:'OUT',connect:[['R1',1],['D1',0],['D2',0]]},{name:'A',connect:[['A',0],['D1',1]]},{name:'B',connect:[['B',0],['D2',1]]},{name:'0',connect:[['A',1],['B',1]]}],analysis:'tran'};
-    desc='<b>AND gate</b> (diode logic). OUT is pulled to +5V through R1; whenever an input is LOW its diode clamps OUT down. So <b>OUT is HIGH only when A AND B are HIGH</b>. The transient sweeps A (1 kHz) and B (500 Hz) so all four input combinations appear — plot A, B and OUT (◎ probe) to read the truth table.';
+    desc='<b>AND gate</b> (diode logic). OUT is pulled to +5V through R1; whenever an input is LOW its diode clamps OUT down. So <b>OUT is HIGH only when A AND B are HIGH</b>. The transient sweeps A (1 kHz) and B (500 Hz) so all four input combinations appear - plot A, B and OUT (◎ probe) to read the truth table.';
   }else if(kind==='or'){
     spec={parts:[{ref:'R1',type:'R',value:'10k'},{ref:'A',type:'VPULSE',value:A},{ref:'B',type:'VPULSE',value:B},{ref:'D1',type:'D',value:'1N4148'},{ref:'D2',type:'D',value:'1N4148'}],
       nets:[{name:'OUT',connect:[['R1',0],['D1',1],['D2',1]]},{name:'A',connect:[['A',0],['D1',0]]},{name:'B',connect:[['B',0],['D2',0]]},{name:'0',connect:[['R1',1],['A',1],['B',1]]}],analysis:'tran'};
@@ -1332,17 +1350,17 @@ function buildLogicGate(kind){
   }else if(kind==='not'){
     spec={parts:[{ref:'VDD',type:'VCC',value:'5'},{ref:'IN',type:'VPULSE',value:A},{ref:'M1',type:'PMOS'},{ref:'M2',type:'NMOS'}],
       nets:[{name:'+5V',connect:[['VDD',0],['M1',2]]},{name:'IN',connect:[['IN',0],['M1',1],['M2',1]]},{name:'OUT',connect:[['M1',0],['M2',0]]},{name:'0',connect:[['IN',1],['M2',2]]}],analysis:'tran'};
-    desc='<b>NOT gate</b> (CMOS inverter). PMOS pulls OUT up when IN is LOW; NMOS pulls OUT down when IN is HIGH — <b>OUT = NOT IN</b>.';
+    desc='<b>NOT gate</b> (CMOS inverter). PMOS pulls OUT up when IN is LOW; NMOS pulls OUT down when IN is HIGH - <b>OUT = NOT IN</b>.';
   }else if(kind==='nand'){
     spec={parts:[{ref:'VDD',type:'VCC',value:'5'},{ref:'A',type:'VPULSE',value:A},{ref:'B',type:'VPULSE',value:B},{ref:'M1',type:'PMOS'},{ref:'M2',type:'PMOS'},{ref:'M3',type:'NMOS'},{ref:'M4',type:'NMOS'}],
       nets:[{name:'+5V',connect:[['VDD',0],['M1',2],['M2',2]]},{name:'A',connect:[['A',0],['M1',1],['M3',1]]},{name:'B',connect:[['B',0],['M2',1],['M4',1]]},{name:'OUT',connect:[['M1',0],['M2',0],['M3',0]]},{name:'MID',connect:[['M3',2],['M4',0]]},{name:'0',connect:[['A',1],['B',1],['M4',2]]}],analysis:'tran'};
-    desc='<b>NAND gate</b> (CMOS). Two PMOS in parallel pull OUT up; two NMOS in series pull it down only when both inputs are HIGH — <b>OUT = NOT (A AND B)</b>.';
+    desc='<b>NAND gate</b> (CMOS). Two PMOS in parallel pull OUT up; two NMOS in series pull it down only when both inputs are HIGH - <b>OUT = NOT (A AND B)</b>.';
   }else if(kind==='nor'){
     spec={parts:[{ref:'VDD',type:'VCC',value:'5'},{ref:'A',type:'VPULSE',value:A},{ref:'B',type:'VPULSE',value:B},{ref:'M1',type:'PMOS'},{ref:'M2',type:'PMOS'},{ref:'M3',type:'NMOS'},{ref:'M4',type:'NMOS'}],
       nets:[{name:'+5V',connect:[['VDD',0],['M1',2]]},{name:'MID',connect:[['M1',0],['M2',2]]},{name:'OUT',connect:[['M2',0],['M3',0],['M4',0]]},{name:'A',connect:[['A',0],['M1',1],['M3',1]]},{name:'B',connect:[['B',0],['M2',1],['M4',1]]},{name:'0',connect:[['A',1],['B',1],['M3',2],['M4',2]]}],analysis:'tran'};
-    desc='<b>NOR gate</b> (CMOS). Two PMOS in series pull OUT up only when both inputs are LOW; two NMOS in parallel pull it down — <b>OUT = NOT (A OR B)</b>.';
+    desc='<b>NOR gate</b> (CMOS). Two PMOS in series pull OUT up only when both inputs are LOW; two NMOS in parallel pull it down - <b>OUT = NOT (A OR B)</b>.';
   }else{   // xor / xnor
-    aiPush('ai','An <b>'+kind.toUpperCase()+'</b> gate needs several sub-gates (it isn\'t a single CMOS stage). I can build <b>AND, OR, NOT, NAND, NOR</b> locally right now — try "NAND gate". For XOR/XNOR, connect a Claude key (✦ top-right) and I\'ll synthesize the full transistor network.');return;
+    aiPush('ai','An <b>'+kind.toUpperCase()+'</b> gate needs several sub-gates (it isn\'t a single CMOS stage). I can build <b>AND, OR, NOT, NAND, NOR</b> locally right now - try "NAND gate". For XOR/XNOR, connect a Claude key (✦ top-right) and I\'ll synthesize the full transistor network.');return;
   }
   buildFromSpec(spec);
   aiPush('ai',desc);
@@ -1351,10 +1369,10 @@ function buildLogicGate(kind){
 function aiLocal(q){if(tryConstructIntent(q))return;const l=q.toLowerCase();
   if(l.includes('why')||l.includes('current')||l.includes('too high')||l.includes('diagnos')||l.includes('problem')||l.includes('wrong')){return diagnose();}
   if(l.includes('explain')||l.includes('what')&&l.includes('circuit')){return explainCircuit();}
-  if(l.includes('help')||l==='?'){return aiPush('ai','With a <b>Claude key</b> connected (✦ top-right) I draw <b>any</b> circuit you describe — filters, amplifiers, CMOS logic gates, oscillators, power supplies — and simulate it.<br><br>Built in (no key needed):<br>• <b>Design</b> — "Sallen-Key 1kHz low-pass", "full-wave rectifier", "LED with resistor", "voltage divider"<br>• <b>Paste</b> a SPICE netlist (R/C/L/D/M/Q/V/I/E + .model + .ac/.tran)<br>• <b>Edit</b> — "change R1 to 470"  •  <b>Analyze</b> — "why is the LED current too high?"');}
+  if(l.includes('help')||l==='?'){return aiPush('ai','With a <b>Claude key</b> connected (✦ top-right) I draw <b>any</b> circuit you describe - filters, amplifiers, CMOS logic gates, oscillators, power supplies - and simulate it.<br><br>Built in (no key needed):<br>• <b>Design</b> - "Sallen-Key 1kHz low-pass", "full-wave rectifier", "LED with resistor", "voltage divider"<br>• <b>Paste</b> a SPICE netlist (R/C/L/D/M/Q/V/I/E + .model + .ac/.tran)<br>• <b>Edit</b> - "change R1 to 470"  •  <b>Analyze</b> - "why is the LED current too high?"');}
   aiPush('ai',"I'll work from what's on the canvas. "+explainText());
 }
-/* ---- full-wave bridge rectifier — built with net labels (verified: OUTp ≈ 8.6V from 10V AC) ---- */
+/* ---- full-wave bridge rectifier - built with net labels (verified: OUTp ≈ 8.6V from 10V AC) ---- */
 function buildFullBridge(){newSheet();
   place('VAC',3,6,'sine 10 60',90);                 // pins: ACp top(3,5), ACn bottom(3,7)
   place('D',7,4,'1N4007'); place('D',7,8,'1N4007'); // D1 ACp→OUTp, D2 ACn→OUTp
@@ -1382,7 +1400,7 @@ function designHighpass(l){let f=1000;const km=l.match(/([\d.]+)\s*k/);const hm=
   const C=1e-7;const R=Math.round(1/(2*Math.PI*f*C));newSheet();
   place('VAC',2,3,'sine 1 '+(f>=1000?(f/1000)+'k':''+f),180);place('C',6,3,'100n');place('R',9,4,fmtR(R),90);place('GND',1,6);place('GND',9,7);
   S.wires.push({x1:3,y1:3,x2:5,y2:3},{x1:7,y1:3,x2:9,y2:3},{x1:1,y1:3,x2:1,y2:6},{x1:9,y1:5,x2:9,y2:7});
-  invalidate();draw();runSim('ac');aiPush('ai',`Designed an <b>RC high-pass</b> at ~<b>${f>=1000?(f/1000)+'kHz':f+'Hz'}</b> (C=100nF in series, R=${fmtR(R)}Ω to ground). See the Bode plot — it rises +20dB/decade below f<sub>c</sub>.`);}
+  invalidate();draw();runSim('ac');aiPush('ai',`Designed an <b>RC high-pass</b> at ~<b>${f>=1000?(f/1000)+'kHz':f+'Hz'}</b> (C=100nF in series, R=${fmtR(R)}Ω to ground). See the Bode plot - it rises +20dB/decade below f<sub>c</sub>.`);}
 function designLED(l){newSheet();
   place('VCC',3,3,'5');place('R',6,3,'330');place('LED',9,3,'LEDred');place('GND',10,6);
   S.wires.push({x1:3,y1:3,x2:5,y2:3},{x1:7,y1:3,x2:8,y2:3},{x1:10,y1:3,x2:10,y2:6});
@@ -1395,7 +1413,7 @@ function designDivider(l){newSheet();
 function fmtR(v){if(v>=1000)return(+(v/1000).toFixed(3))+'k';return''+Math.round(v);}
 function fmtC(v){if(v>=1e-6)return(+(v*1e6).toFixed(2))+'u';if(v>=1e-9)return(+(v*1e9).toFixed(2))+'n';return(+(v*1e12).toFixed(1))+'p';}
 /* Sallen-Key 2nd-order unity-gain Butterworth low-pass (op-amp). Q=0.707 → C1=2·C2; fc=1/(2π·R·√(C1·C2)) */
-/* H-Bridge: 4 NMOS in a SQUARE (not a row) — proves 2D non-chain layout. Gates tied to a forward-drive state so it simulates. */
+/* H-Bridge: 4 NMOS in a SQUARE (not a row) - proves 2D non-chain layout. Gates tied to a forward-drive state so it simulates. */
 function buildHBridge(){
   newSheet();
   place('NMOS',10,7);place('NMOS',24,7);place('NMOS',10,17);place('NMOS',24,17);  // M1 TL, M2 TR, M3 BL, M4 BR
@@ -1403,10 +1421,10 @@ function buildHBridge(){
   place('V',3,12,'24',90);                                                          // +24V supply (vertical: +top(3,11), -bottom(3,13))
   // NMOS pins: D(+2,-2), G(-2,0), S(+2,+2). M1@(10,7)→ D(12,5) G(8,7) S(12,9)
   S.wires.push(
-    {x1:12,y1:5,x2:12,y2:3},{x1:12,y1:3,x2:26,y2:3},{x1:26,y1:3,x2:26,y2:5},        // +24V top rail: M1.D—M2.D
-    {x1:12,y1:19,x2:12,y2:21},{x1:12,y1:21,x2:26,y2:21},{x1:26,y1:21,x2:26,y2:19},  // GND bottom rail: M3.S—M4.S
-    {x1:12,y1:9,x2:12,y2:15},                                                       // Motor_Left column: M1.S—M3.D
-    {x1:26,y1:9,x2:26,y2:15},                                                       // Motor_Right column: M2.S—M4.D
+    {x1:12,y1:5,x2:12,y2:3},{x1:12,y1:3,x2:26,y2:3},{x1:26,y1:3,x2:26,y2:5},        // +24V top rail: M1.D-M2.D
+    {x1:12,y1:19,x2:12,y2:21},{x1:12,y1:21,x2:26,y2:21},{x1:26,y1:21,x2:26,y2:19},  // GND bottom rail: M3.S-M4.S
+    {x1:12,y1:9,x2:12,y2:15},                                                       // Motor_Left column: M1.S-M3.D
+    {x1:26,y1:9,x2:26,y2:15},                                                       // Motor_Right column: M2.S-M4.D
     {x1:12,y1:12,x2:16,y2:12},{x1:18,y1:12,x2:26,y2:12},                            // R_load across ML↔MR
     {x1:3,y1:11,x2:3,y2:3},{x1:3,y1:3,x2:12,y2:3},                                  // V+ → top rail
     {x1:3,y1:13,x2:3,y2:21},{x1:3,y1:21,x2:12,y2:21}                                // V− → bottom rail
@@ -1414,7 +1432,7 @@ function buildHBridge(){
   addLabel(3,3,'+24V');addLabel(3,21,'0');addLabel(12,12,'ML');addLabel(26,12,'MR');  // on wire endpoints (not mid-segment)
   addLabel(8,7,'+24V');addLabel(22,17,'+24V');addLabel(22,7,'0');addLabel(8,17,'0'); // gate drive: M1,M4 ON  M2,M3 OFF (forward)
   invalidate();draw();runSim('dc');
-  aiPush('ai','Built an <b>H-Bridge</b> as a 4-NMOS square grid — M1/M2 high-side (top), M3/M4 low-side (bottom), +24V top rail, GND bottom, and <b>R_load</b>(10Ω) bridging Motor_Left↔Motor_Right.<br>Gates are tied to a <b>forward-drive</b> state (M1+M4 on, M2+M3 off) so current flows VCC→M1→ML→R_load→MR→M4→GND. Run <b>= DC Op</b> to see the node voltages.<br><i>Note: high-side NMOS need gate drive above +24V to fully saturate — real bridges use bootstrap/charge-pump drivers.</i>');
+  aiPush('ai','Built an <b>H-Bridge</b> as a 4-NMOS square grid - M1/M2 high-side (top), M3/M4 low-side (bottom), +24V top rail, GND bottom, and <b>R_load</b>(10Ω) bridging Motor_Left↔Motor_Right.<br>Gates are tied to a <b>forward-drive</b> state (M1+M4 on, M2+M3 off) so current flows VCC→M1→ML→R_load→MR→M4→GND. Run <b>= DC Op</b> to see the node voltages.<br><i>Note: high-side NMOS need gate drive above +24V to fully saturate - real bridges use bootstrap/charge-pump drivers.</i>');
 }
 function buildSallenKey(l){
   let fc=1000;const km=l.match(/([\d.]+)\s*k/);const hm=l.match(/([\d.]+)\s*hz/);if(km)fc=parseFloat(km[1])*1000;else if(hm)fc=parseFloat(hm[1]);
@@ -1440,19 +1458,19 @@ function diagnose(){if(!S.sim){runSim('tran');}
   const{ckt,nets}=buildCircuit(false);const op=ckt.dcOP();
   S.comps.forEach(c=>{if(c.type==='LED'||c.type==='D'){const P=pinCoords(c);const na=nets.pinNet.get(c.uid+':0'),nb=nets.pinNet.get(c.uid+':1');
     const vd=(op.V[na]||0)-(op.V[nb]||0);const model=MODELS[c.value]||MODELS['1N4148'];const id=model.Is*(Math.exp(Math.min(vd,0.85)/(model.N*VT))-1);
-    if(c.type==='LED'&&id>0.025)issues.push(`⚠ <b>${c.ref}</b> LED current ≈ <b>${(id*1000).toFixed(0)}mA</b> — over the ~20mA limit. Increase the series resistor. For 10mA: R≈(Vsupply−${vd.toFixed(1)})/0.01.`);
-    else if(id>0.001)issues.push(`✓ ${c.ref} conducts ${(id*1000).toFixed(1)}mA at Vf=${vd.toFixed(2)}V — healthy.`);}});
+    if(c.type==='LED'&&id>0.025)issues.push(`⚠ <b>${c.ref}</b> LED current ≈ <b>${(id*1000).toFixed(0)}mA</b> - over the ~20mA limit. Increase the series resistor. For 10mA: R≈(Vsupply−${vd.toFixed(1)})/0.01.`);
+    else if(id>0.001)issues.push(`✓ ${c.ref} conducts ${(id*1000).toFixed(1)}mA at Vf=${vd.toFixed(2)}V - healthy.`);}});
   // floating nodes
   const deg={};S.comps.forEach(c=>pinCoords(c).forEach((p,i)=>{const n=nets.pinNet.get(c.uid+':'+i);deg[n]=(deg[n]||0)+1;}));
-  Object.entries(deg).forEach(([n,d])=>{if(n!=='0'&&d===1)issues.push(`⚠ Node <b>${n}</b> is only connected to one pin — it's floating. Add a wire or connection.`);});
-  if(!S.comps.some(c=>PARTS[c.type].ground))issues.push('⚠ No <b>ground</b> in the circuit — every SPICE circuit needs a GND reference. Drag a Ground symbol in.');
-  if(!S.comps.some(c=>['V','VAC','VPULSE','VCC','V33','V12','I'].includes(c.type)))issues.push('⚠ No <b>source</b> — add a DC/AC/VCC source to drive the circuit.');
-  aiPush('ai',issues.length?issues.join('<br>'):'✓ I checked LED/diode currents, floating nodes, ground and sources — nothing alarming. The circuit looks well-formed.');}
+  Object.entries(deg).forEach(([n,d])=>{if(n!=='0'&&d===1)issues.push(`⚠ Node <b>${n}</b> is only connected to one pin - it's floating. Add a wire or connection.`);});
+  if(!S.comps.some(c=>PARTS[c.type].ground))issues.push('⚠ No <b>ground</b> in the circuit - every SPICE circuit needs a GND reference. Drag a Ground symbol in.');
+  if(!S.comps.some(c=>['V','VAC','VPULSE','VCC','V33','V12','I'].includes(c.type)))issues.push('⚠ No <b>source</b> - add a DC/AC/VCC source to drive the circuit.');
+  aiPush('ai',issues.length?issues.join('<br>'):'✓ I checked LED/diode currents, floating nodes, ground and sources - nothing alarming. The circuit looks well-formed.');}
 
 function autoDiagnose(kind,r){ // proactive one-liner after each sim
   if(kind!=='tran'&&kind!=='dc')return;const{nets}=S.nets?{nets:S.nets}:buildCircuit(false);
   let warn=null;const op=kind==='dc'?r.V:(S.sim&&S.sim.finalV);
-  S.comps.forEach(c=>{if(c.type==='LED'){const na=S.nets.pinNet.get(c.uid+':0'),nb=S.nets.pinNet.get(c.uid+':1');const vd=((op&&op[na])||0)-((op&&op[nb])||0);const md=MODELS[c.value]||MODELS['LEDred'];const id=md.Is*(Math.exp(Math.min(vd,0.85)/(md.N*VT))-1);if(id>0.025)warn=`⚠ ${c.ref} is pulling ${(id*1000).toFixed(0)}mA — likely too bright / over limit. Ask me "why is the LED current too high?"`;}});
+  S.comps.forEach(c=>{if(c.type==='LED'){const na=S.nets.pinNet.get(c.uid+':0'),nb=S.nets.pinNet.get(c.uid+':1');const vd=((op&&op[na])||0)-((op&&op[nb])||0);const md=MODELS[c.value]||MODELS['LEDred'];const id=md.Is*(Math.exp(Math.min(vd,0.85)/(md.N*VT))-1);if(id>0.025)warn=`⚠ ${c.ref} is pulling ${(id*1000).toFixed(0)}mA - likely too bright / over limit. Ask me "why is the LED current too high?"`;}});
   if(warn)aiPush('sys',warn);}
 
 function explainCircuit(){aiPush('ai',explainText());}
@@ -1462,9 +1480,9 @@ function explainText(){const parts=S.comps.filter(c=>PARTS[c.type].net||PARTS[c.
   const list=Object.entries(byType).map(([t,n])=>`${n}× ${PARTS[t].label}`).join(', ');
   const nodes=distinctNets().length;
   let s=`This sheet has <b>${parts.length} parts</b> (${list}) across <b>${nodes} nodes</b>. `;
-  if(S.comps.some(c=>c.type==='C')&&S.comps.some(c=>c.type==='R'))s+='It contains an RC network — expect first-order filtering / time-constant behaviour (τ=RC). ';
+  if(S.comps.some(c=>c.type==='C')&&S.comps.some(c=>c.type==='R'))s+='It contains an RC network - expect first-order filtering / time-constant behaviour (τ=RC). ';
   if(S.comps.some(c=>c.type==='LED'||c.type==='D'))s+='A diode/LED makes it nonlinear (rectifying / clamping). ';
-  if(S.comps.some(c=>c.type==='L'))s+='The inductor adds energy storage — watch for resonance with any capacitor. ';
+  if(S.comps.some(c=>c.type==='L'))s+='The inductor adds energy storage - watch for resonance with any capacitor. ';
   s+='Run Transient for time-domain, AC for the frequency response.';return s;}
 function esc(s){return(s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -1498,7 +1516,7 @@ function miniSvg(kind,color){const c=color;
 function newSheet(){S.comps=[];S.wires=[];S.labels=[];S.sel=null;S.sim=null;S.ac=null;S.nets=null;S.probes=[];S.flowOn=false;S.flowData=null;S.refCount={};uidC=0;draw();drawWave();updateStatus();autosave();}
 
 /* ============================================================================
-   PERSISTENCE — autosave/restore, file save/open, and undo/redo
+   PERSISTENCE - autosave/restore, file save/open, and undo/redo
    ============================================================================ */
 function serializeDesign(){return JSON.stringify({v:1,comps:S.comps,wires:S.wires,labels:S.labels,refCount:S.refCount,uidC});}
 function loadDesign(str,fit){try{const d=JSON.parse(str);if(!d||!Array.isArray(d.comps))return false;
@@ -1515,14 +1533,14 @@ function initHistory(){_lastSnap=serializeDesign();updateUndoBtns();}
 function undo(){if(!undoStack.length)return;redoStack.push(serializeDesign());const p=undoStack.pop();_lastSnap=p;loadDesign(p,false);try{localStorage.setItem('ss_sheet',p);}catch(_){}updateUndoBtns();}
 function redo(){if(!redoStack.length)return;undoStack.push(serializeDesign());const n=redoStack.pop();_lastSnap=n;loadDesign(n,false);try{localStorage.setItem('ss_sheet',n);}catch(_){}updateUndoBtns();}
 function updateUndoBtns(){const u=document.getElementById('h-undo'),r=document.getElementById('h-redo');if(u)u.classList.toggle('disabled',!undoStack.length);if(r)r.classList.toggle('disabled',!redoStack.length);}
-function saveFile(){const blob=new Blob([serializeDesign()],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='circuit.ssproj.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);aiPush('sys','💾 Saved <b>circuit.ssproj.json</b> — Open it later to restore.');}
+function saveFile(){const blob=new Blob([serializeDesign()],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='circuit.ssproj.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);aiPush('sys','💾 Saved <b>circuit.ssproj.json</b> - Open it later to restore.');}
 function openFile(){const inp=document.createElement('input');inp.type='file';inp.accept='.json,.ssproj,application/json';
   inp.onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{if(loadDesign(rd.result))aiPush('sys','📂 Opened <b>'+f.name+'</b>.');else aiPush('sys','⚠ Could not read that file as a SpiceStudio design.');};rd.readAsText(f);};inp.click();}
 function loadDemo(kind){newSheet();
-  if(kind==='rc'){ // RC low-pass, fc≈1kHz — VAC rot180 so + faces R (verified layout F)
+  if(kind==='rc'){ // RC low-pass, fc≈1kHz - VAC rot180 so + faces R (verified layout F)
     place('VAC',2,3,'sine 1 1k',180);place('R',6,3,'1.6k');place('C',9,4,'100n',90);place('GND',1,6);place('GND',9,7);
     S.wires.push({x1:3,y1:3,x2:5,y2:3},{x1:7,y1:3,x2:9,y2:3},{x1:1,y1:3,x2:1,y2:6},{x1:9,y1:5,x2:9,y2:7});
-    invalidate();draw();runSim('ac');aiPush('sys','Loaded RC low-pass (fc≈1kHz). Showing Bode — note the −3dB corner ≈ 1kHz.');}
+    invalidate();draw();runSim('ac');aiPush('sys','Loaded RC low-pass (fc≈1kHz). Showing Bode - note the −3dB corner ≈ 1kHz.');}
   else if(kind==='rect'){ // half-wave rectifier + smoothing cap (verified layout G)
     place('VAC',2,3,'sine 5 60',180);place('D',6,3,'1N4007');place('C',9,4,'47u',90);place('R',11,4,'1k',90);place('GND',1,6);place('GND',9,7);place('GND',11,7);
     S.wires.push({x1:3,y1:3,x2:5,y2:3},{x1:7,y1:3,x2:9,y2:3},{x1:9,y1:3,x2:11,y2:3},{x1:1,y1:3,x2:1,y2:6},{x1:9,y1:5,x2:9,y2:7},{x1:11,y1:5,x2:11,y2:7});
@@ -1530,12 +1548,12 @@ function loadDemo(kind){newSheet();
   else if(kind==='led'){ // +5V → 330Ω → LED → GND (verified layout E)
     place('VCC',3,3,'5');place('R',6,3,'330');place('LED',9,3,'LEDred');place('GND',10,6);
     S.wires.push({x1:3,y1:3,x2:5,y2:3},{x1:7,y1:3,x2:8,y2:3},{x1:10,y1:3,x2:10,y2:6});
-    invalidate();draw();runSim('dc');aiPush('sys','Loaded LED driver (+5V → 330Ω → LED). DC solved — node voltages on the sheet, ≈10mA through the LED.');}
+    invalidate();draw();runSim('dc');aiPush('sys','Loaded LED driver (+5V → 330Ω → LED). DC solved - node voltages on the sheet, ≈10mA through the LED.');}
   zoomFit();   // frame the freshly-loaded circuit so it never sits tiny in a corner
 }
 
 /* ============================================================================
-   9. PCB VIEW (Phase 1 starter) — footprints auto-placed + ratsnest from netlist
+   9. PCB VIEW (Phase 1 starter) - footprints auto-placed + ratsnest from netlist
    ============================================================================ */
 let curView='sch';
 function switchView(v){
@@ -1552,7 +1570,7 @@ function switchView(v){
 }
 
 /* ============================================================================
-   11. FIRMWARE (Phase 3 v1) — JS Arduino runtime: sketch drives live pins + LED
+   11. FIRMWARE (Phase 3 v1) - JS Arduino runtime: sketch drives live pins + LED
    ============================================================================ */
 const FW={running:false,speed:1,virtT:0,pins:{},modes:{},sketch:null,gen:0};
 function fwToggle(){ FW.running?fwStop():fwStart(); }
@@ -1639,7 +1657,7 @@ function pcbUF(){
   PCB.tracks.forEach(t=>{for(let i=0;i<t.pts.length-1;i++)uni(key(t.layer,t.pts[i][0],t.pts[i][1]),key(t.layer,t.pts[i+1][0],t.pts[i+1][1]));});
   return{find,key};
 }
-function ratsnest(){ // MST per net over UNROUTED clusters — a fully-routed net has 0 airwires
+function ratsnest(){ // MST per net over UNROUTED clusters - a fully-routed net has 0 airwires
   const{find,key}=pcbUF();const byNet={};
   PCB.fps.forEach(f=>f.pads.forEach(pd=>{if(!pd.net)return;const x=f.x+pd.dx,y=f.y+pd.dy;
     (byNet[pd.net]=byNet[pd.net]||[]).push({x,y,cl:find(key('F.Cu',x,y))});}));
@@ -1664,7 +1682,7 @@ function draw3D(){
   const iso=(x,y,z)=>{const X=x-CX,Y=y-CY,rx=X*cyA-Y*syA,ry=X*syA+Y*cyA;return[ox+rx*sc,oy+ry*sp*sc-z*cp*sc];};   // yaw+pitch orbit camera
   const depth=(x,y)=>{const X=x-CX,Y=y-CY;return X*syA+Y*cyA;};   // receding axis; smaller = farther (draw first)
   const quad=(p,fill,stroke)=>{pctx.beginPath();p.forEach((pt,i)=>i?pctx.lineTo(pt[0],pt[1]):pctx.moveTo(pt[0],pt[1]));pctx.closePath();if(fill){pctx.fillStyle=fill;pctx.fill();}if(stroke){pctx.strokeStyle=stroke;pctx.lineWidth=1;pctx.stroke();}};
-  // board slab — 4 side walls painter-sorted by depth, then the top face (correct at any orbit angle)
+  // board slab - 4 side walls painter-sorted by depth, then the top face (correct at any orbit angle)
   const x0=-2,y0=-2,x1=50,y1=38,th=1.6,bc=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],bw=[];
   for(let i=0;i<4;i++){const p=bc[i],q=bc[(i+1)%4];bw.push({q:[iso(p[0],p[1],-th),iso(q[0],q[1],-th),iso(q[0],q[1],0),iso(p[0],p[1],0)],d:depth((p[0]+q[0])/2,(p[1]+q[1])/2)});}
   bw.sort((a,b)=>a.d-b.d);bw.forEach(w=>quad(w.q,'#0a2814','#06160b'));
@@ -1719,7 +1737,7 @@ function drawPCB(){
     PCB.tracks.filter(t=>t.layer===lyr).forEach(t=>{pctx.strokeStyle=LAYER_COL[lyr];pctx.globalAlpha=(lyr===PCB.layer?1:0.55);pctx.lineWidth=3*z;pctx.lineCap='round';pctx.lineJoin='round';
       pctx.beginPath();t.pts.forEach((p,i)=>{const[x,y]=toPcb(p[0],p[1]);i?pctx.lineTo(x,y):pctx.moveTo(x,y);});pctx.stroke();});});
   pctx.globalAlpha=1;
-  // ratsnest (unrouted airwires) — always shown as a design aid
+  // ratsnest (unrouted airwires) - always shown as a design aid
   const rn=ratsnest();pctx.strokeStyle='rgba(150,190,255,.5)';pctx.lineWidth=1;
   rn.forEach(([a,b])=>{const[ax,ay]=toPcb(a.x,a.y),[bx2,by2]=toPcb(b.x,b.y);pctx.beginPath();pctx.moveTo(ax,ay);pctx.lineTo(bx2,by2);pctx.stroke();});
   // COPPER PADS (annular ring) + DRILL holes
@@ -1799,7 +1817,7 @@ function exportGerber(){
 }
 
 /* ============================================================================
-   10. BREADBOARD VIEW (Phase 2) — auto-built from the schematic; same net = same column
+   10. BREADBOARD VIEW (Phase 2) - auto-built from the schematic; same net = same column
    ============================================================================ */
 const BB={zoom:1.1,ox:44,oy:40,cols:24,place:[],jumpers:[],netCol:{}};
 let bbCanvas,bctx;const BBP=17;
@@ -1848,9 +1866,9 @@ function drawBB(){
 window.addEventListener('error',e=>{try{aiPush('sys','⚠ script error: '+e.message);}catch(_){}});
 window.addEventListener('unhandledrejection',e=>{try{aiPush('sys','⚠ '+((e.reason&&e.reason.message)||e.reason));}catch(_){}});
 refreshAIStatus();loadLocalKey();buildPalette();initChips();initPCB();initBB();resize();
-aiPush('ai',"Hi — I'm the design intelligence inside SpiceStudio.<br>Describe <b>any</b> circuit — a filter, an amplifier, a CMOS logic gate, a power supply — and I'll draw it and simulate it. You can also paste a SPICE netlist.<br><br>To design <b>anything</b> from a description, connect your Claude key (the <b>✦ badge, top-right</b>). Without it I can still build the common circuits below and run pasted netlists.");
+aiPush('ai',"Hi - I'm the design intelligence inside SpiceStudio.<br>Describe <b>any</b> circuit - a filter, an amplifier, a CMOS logic gate, a power supply - and I'll draw it and simulate it. You can also paste a SPICE netlist.<br><br>To design <b>anything</b> from a description, connect your Claude key (the <b>✦ badge, top-right</b>). Without it I can still build the common circuits below and run pasted netlists.");
 const _saved=(typeof localStorage!=='undefined')?localStorage.getItem('ss_sheet'):null;
-if(_saved&&loadDesign(_saved,false))aiPush('sys','↩ Restored your last session — <b>＋ New</b> starts a blank sheet.');
+if(_saved&&loadDesign(_saved,false))aiPush('sys','↩ Restored your last session - <b>＋ New</b> starts a blank sheet.');
 else loadDemo('led');
 initHistory();
 // undo / redo / save keyboard shortcuts (ignored while typing in a field)
