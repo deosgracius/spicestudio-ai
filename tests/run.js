@@ -22,7 +22,7 @@ console.log('  ' + run('extract.js').last);
 const tests = [
   'mna.js', 'netlist_test.js', 'app_harness.js', 'spectest.js', 'mostest.js',
   'qtest.js', 'oatest.js', 'logictest.js', 'routetest.js', 'hbtest.js',
-  'parsetest.js', 'modeltest.js', 'bbtest.js', 'fwtest.js', 'fwtest2.js', 'layouttest.js', 'coltest.js', 'flowtest.js', 'gatetest.js', 'persisttest.js', 'cattest.js',
+  'parsetest.js', 'modeltest.js', 'bbtest.js', 'fwtest.js', 'fwtest2.js', 'layouttest.js', 'coltest.js', 'flowtest.js', 'gatetest.js', 'persisttest.js', 'cattest.js', 'artest.js',
 ];
 
 let allPass = true;

@@ -316,6 +316,7 @@ button{font-family:inherit}
       <span id="pcb-drc"></span>
       <div class="spacer" style="flex:1"></div>
       <button onclick="pcbAutoPlace()">⟲ Auto-place</button>
+      <button onclick="pcbAutoroute()" title="A* maze router: turns the ratsnest into copper tracks (vias where needed)">↯ Autoroute</button>
       <button onclick="runDRC()">DRC</button>
       <button onclick="exportGerber()">⭳ Gerber</button>
       <button id="pm-3d" class="pmode" onclick="pcb3d()">3D</button>
@@ -1725,6 +1726,72 @@ function ratsnest(){ // MST per net over UNROUTED clusters - a fully-routed net 
     while(rest.length){let best=null;inT.forEach(a=>rest.forEach(b=>{const d=Math.hypot(cl[a].x-cl[b].x,cl[a].y-cl[b].y);if(!best||d<best.d)best={a,b,d};}));
       edges.push([cl[best.a],cl[best.b]]);inT.push(best.b);rest.splice(rest.indexOf(best.b),1);}});
   return edges;
+}
+/* ---- COPPER AUTOROUTER: A* maze router over the 2-layer grid.
+   Other-net copper blocks; same-net copper is walkable; bends cost extra (no staircase);
+   a layer-swap via is allowed anywhere both layers are free (high cost, used sparingly).
+   Routes ratsnest edges shortest-first and repeats until the board stops improving. ---- */
+function pcbAutoroute(){
+  const X0=-2,Y0=-2,X1=50,Y1=38,Wg=X1-X0+1,LAYERS=['F.Cu','B.Cu'];
+  const ci=(x,y)=>(y-Y0)*Wg+(x-X0);const inB=(x,y)=>x>=X0&&x<=X1&&y>=Y0&&y<=Y1;
+  const occ=[new Array(Wg*(Y1-Y0+1)),new Array(Wg*(Y1-Y0+1))];
+  const stampCell=(L,x,y,net)=>{if(inB(x,y))occ[L][ci(x,y)]=net;};
+  const stampSeg=(L,x1,y1,x2,y2,net)=>{const n=Math.max(Math.abs(x2-x1),Math.abs(y2-y1))||1;
+    for(let k=0;k<=n;k++)stampCell(L,Math.round(x1+(x2-x1)*k/n),Math.round(y1+(y2-y1)*k/n),net);};
+  PCB.fps.forEach(f=>f.pads.forEach(pd=>{const x=f.x+pd.dx,y=f.y+pd.dy,n=pd.net||'#';stampCell(0,x,y,n);stampCell(1,x,y,n);}));
+  PCB.tracks.forEach(t=>{const L=t.layer==='B.Cu'?1:0;for(let i=0;i<t.pts.length-1;i++)stampSeg(L,t.pts[i][0],t.pts[i][1],t.pts[i+1][0],t.pts[i+1][1],t.net||'#');});
+  PCB.vias.forEach(v=>{stampCell(0,v.x,v.y,v.net||'#');stampCell(1,v.x,v.y,v.net||'#');});
+  const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
+  const route=(net,a,b)=>{
+    const walk=(L,x,y)=>{const o=occ[L][ci(x,y)];return o===undefined||o===net;};
+    const h=(x,y)=>10*(Math.abs(x-b.x)+Math.abs(y-b.y));
+    const heap=[],seen=new Set();
+    const push=o=>{heap.push(o);let i=heap.length-1;while(i>0){const p=(i-1)>>1;if(heap[p].f<=heap[i].f)break;const t=heap[p];heap[p]=heap[i];heap[i]=t;i=p;}};
+    const pop=()=>{const t=heap[0],l=heap.pop();if(heap.length){heap[0]=l;let i=0;for(;;){let m=i;const A=2*i+1,B=2*i+2;
+      if(A<heap.length&&heap[A].f<heap[m].f)m=A;if(B<heap.length&&heap[B].f<heap[m].f)m=B;if(m===i)break;const s=heap[i];heap[i]=heap[m];heap[m]=s;i=m;}}return t;};
+    push({L:0,x:a.x,y:a.y,dir:-1,g:0,f:h(a.x,a.y),par:null});
+    let goal=null,guard=0;
+    while(heap.length&&guard++<150000){
+      const cur=pop(),k=cur.L+':'+cur.x+','+cur.y+':'+cur.dir;
+      if(seen.has(k))continue;seen.add(k);
+      if(cur.x===b.x&&cur.y===b.y){goal=cur;break;}
+      for(let d=0;d<4;d++){const nx=cur.x+DIRS[d][0],ny=cur.y+DIRS[d][1];
+        if(!inB(nx,ny)||!walk(cur.L,nx,ny))continue;
+        const g=cur.g+10+(cur.dir>=0&&cur.dir!==d?6:0);
+        push({L:cur.L,x:nx,y:ny,dir:d,g,f:g+h(nx,ny),par:cur});}
+      const oL=1-cur.L;   // layer swap through a via (cell must be free on both layers)
+      if(walk(oL,cur.x,cur.y))push({L:oL,x:cur.x,y:cur.y,dir:-1,g:cur.g+60,f:cur.g+60+h(cur.x,cur.y),par:cur,via:true});
+    }
+    if(!goal)return null;
+    const pts=[];for(let p=goal;p;p=p.par)pts.push(p);pts.reverse();
+    const segs=[],vias=[];let cs={layer:LAYERS[pts[0].L],pts:[[pts[0].x,pts[0].y]]};
+    for(let i=1;i<pts.length;i++){const p=pts[i];
+      if(p.via){vias.push({x:p.x,y:p.y});if(cs.pts.length>1)segs.push(cs);cs={layer:LAYERS[p.L],pts:[[p.x,p.y]]};continue;}
+      const n2=cs.pts.length,last=cs.pts[n2-1],prev=cs.pts[n2-2];
+      if(prev&&Math.sign(p.x-last[0])===Math.sign(last[0]-prev[0])&&Math.sign(p.y-last[1])===Math.sign(last[1]-prev[1]))cs.pts[n2-1]=[p.x,p.y];
+      else cs.pts.push([p.x,p.y]);}
+    if(cs.pts.length>1)segs.push(cs);
+    return{segs,vias};
+  };
+  const padNet={};PCB.fps.forEach(f=>f.pads.forEach(pd=>{if(pd.net)padNet[(f.x+pd.dx)+','+(f.y+pd.dy)]=pd.net;}));
+  let routed=0;
+  for(let round=0;round<6;round++){
+    const edges=ratsnest().map(([a,b])=>({a,b,d:Math.hypot(a.x-b.x,a.y-b.y),net:padNet[a.x+','+a.y]||padNet[b.x+','+b.y]}))
+      .filter(e=>e.net).sort((x,y)=>x.d-y.d);
+    if(!edges.length)break;
+    let progress=false;
+    for(const e of edges){const r=route(e.net,e.a,e.b);if(!r)continue;
+      r.segs.forEach(s=>{PCB.tracks.push({net:e.net,layer:s.layer,pts:s.pts});const L=s.layer==='B.Cu'?1:0;
+        for(let i=0;i<s.pts.length-1;i++)stampSeg(L,s.pts[i][0],s.pts[i][1],s.pts[i+1][0],s.pts[i+1][1],e.net);});
+      r.vias.forEach(v=>{PCB.vias.push({x:v.x,y:v.y,net:e.net});stampCell(0,v.x,v.y,e.net);stampCell(1,v.x,v.y,e.net);});
+      routed++;progress=true;}
+    if(!progress)break;
+  }
+  const left=ratsnest().length;
+  drawPCB();runDRC();
+  const st=document.getElementById('pcb-stat');
+  if(st)st.innerHTML=`autoroute: <b>${routed}</b> connection(s) routed${left?` · <span style="color:var(--amber)">${left} unroutable at this placement</span>`:' · board complete ✓'}`;
+  return{routed,left};
 }
 function toPcb(x,y){return[PCB.ox+x*MMPP*PCB.zoom,PCB.oy+y*MMPP*PCB.zoom];}
 function fpBounds(f){const xs=f.pads.map(p=>p.dx),ys=f.pads.map(p=>p.dy);
