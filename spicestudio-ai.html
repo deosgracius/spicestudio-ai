@@ -312,6 +312,7 @@ button{font-family:inherit}
         <button class="lyr on" style="--lc:#d8b24a" onclick="pcbToggleLayer('outline',this)">Edge</button>
       </span>
       <span class="stat" id="pcb-stat">-</span>
+      <span class="stat" id="pcb-xy" style="color:var(--dim)"></span>
       <span id="pcb-drc"></span>
       <div class="spacer" style="flex:1"></div>
       <button onclick="pcbAutoPlace()">⟲ Auto-place</button>
@@ -341,6 +342,10 @@ button{font-family:inherit}
     <div id="fw-bar">
       <button id="fw-run" onclick="fwToggle()">▶ Run</button>
       <button onclick="fwReset()">⟲ Reset</button>
+      <select id="fw-ex" onchange="fwLoadExample(this.value)" title="Load an example sketch">
+        <option value="">Examples…</option><option value="blink">Blink</option><option value="sos">SOS beacon</option>
+        <option value="counter">Serial counter</option><option value="chaser">Pin chaser</option>
+      </select>
       <span class="stat">speed <select id="fw-speed" onchange="FW.speed=+this.value"><option value="1">1×</option><option value="5">5×</option><option value="20">20×</option></select></span>
       <span class="stat" id="fw-status" style="color:var(--dim)">idle</span>
     </div>
@@ -546,13 +551,37 @@ class Circuit{
    Each 2-pin part: pins at (-1,0),(+1,0) grid units around center; W=2 cells.
    ============================================================================ */
 const MODELS={
-  // Diodes - authentic SPICE .model params
-  '1N4148':{Is:2.52e-9,N:1.752},   '1N4007':{Is:7.02e-9,N:1.8},
+  // Diodes - authentic SPICE .model params (industry-standard model cards)
+  '1N4148':{Is:2.52e-9,N:1.752,CJO:4e-12,TT:11.5e-9},          // small-signal, Vishay/onsemi
+  '1N4001':{Is:14.11e-9,N:1.984,CJO:25.9e-12,TT:5.7e-6},       // 1A rectifier
+  '1N4007':{Is:7.02e-9,N:1.8,CJO:26e-12,TT:4.3e-6},            // 1A 1000V rectifier
+  '1N5819':{Is:3.2e-7,N:1.05,CJO:110e-12},                     // 1A Schottky
+  'BAT54' :{Is:1.04e-7,N:1.08,CJO:10e-12},                     // small-signal Schottky
   'LEDred':{Is:1e-16,N:1.9},'LEDgrn':{Is:5e-18,N:2.0},'LEDblu':{Is:1e-19,N:2.2},'LEDyel':{Is:1e-17,N:2.0},
-  '1N5819':{Is:3.2e-7,N:1.05}, // schottky
 };
 const MOS_MODELS={NMOS:{type:'nmos',Vto:0.7,Kp:100e-6,W:10e-6,L:1e-6,lambda:0.02},PMOS:{type:'pmos',Vto:-0.7,Kp:40e-6,W:20e-6,L:1e-6,lambda:0.03}};
 const BJT_MODELS={NPN:{type:'npn',Is:1e-15,BF:200,BR:1},PNP:{type:'pnp',Is:1e-15,BF:100,BR:1}};
+// Manufacturer part catalog (like LTspice's standard.bjt / standard.mos).
+// BJTs use published Gummel-Poon cards; MOSFETs are honest Level-1 fits of the datasheet
+// transfer curve (real power FETs are VDMOS subcircuits, beyond a Level-1 engine).
+const BJT_CATALOG={
+  '2N2222' :{type:'npn',Is:14.34e-15,BF:255.9,BR:6.09,VAF:74.03,TF:411e-12,CJE:22.01e-12,CJC:7.31e-12},
+  '2N3904' :{type:'npn',Is:6.734e-15,BF:416.4,BR:0.7371,VAF:74.03,TF:301.2e-12,CJE:4.49e-12,CJC:3.64e-12},
+  'BC547B' :{type:'npn',Is:7.049e-15,BF:374.6,BR:0.7,VAF:62.37,TF:410e-12,CJE:11.5e-12,CJC:5.25e-12},
+  'TIP31C' :{type:'npn',Is:1e-13,BF:75,BR:2,VAF:100,TF:1e-9,CJE:100e-12,CJC:50e-12},
+  '2N3906' :{type:'pnp',Is:1.41e-15,BF:180.7,BR:4.977,VAF:18.7,TF:466.5e-12,CJE:4.97e-12,CJC:9.39e-12},
+  'BC557B' :{type:'pnp',Is:1.02e-15,BF:300,BR:10,VAF:52,TF:612e-12,CJE:13e-12,CJC:9.8e-12},
+};
+const MOS_CATALOG={
+  '2N7000' :{type:'nmos',Vto:2.0,Kp:0.10,W:1e-6,L:1e-6,lambda:0.01,CGS:25e-12,CGD:5e-12},
+  'BSS138' :{type:'nmos',Vto:1.4,Kp:0.05,W:1e-6,L:1e-6,lambda:0.012,CGS:28e-12,CGD:8e-12},
+  'IRF540N':{type:'nmos',Vto:3.8,Kp:30,W:1e-6,L:1e-6,lambda:0.003,CGS:1.7e-9,CGD:0.24e-9},
+  'IRFZ44N':{type:'nmos',Vto:3.9,Kp:35,W:1e-6,L:1e-6,lambda:0.003,CGS:1.9e-9,CGD:0.3e-9},
+  'IRF9540':{type:'pmos',Vto:-3.7,Kp:15,W:1e-6,L:1e-6,lambda:0.004,CGS:1.4e-9,CGD:0.5e-9},
+};
+const catLookup=v=>{if(!v)return null;const k=String(v).trim().toUpperCase();
+  for(const t of[BJT_CATALOG,MOS_CATALOG])for(const n in t)if(n.toUpperCase()===k)return{name:n,model:t[n]};
+  for(const n in MODELS)if(n.toUpperCase()===k)return{name:n,model:MODELS[n],diode:true};return null;};
 // Part templates. netlist(comp, netOf(pinIndex)) -> pushes elements onto a Circuit
 const PARTS={
   R:{cat:'Passives',label:'Resistor',def:'1k',pins:2,draw:'res',color:'#c87137',
@@ -565,16 +594,16 @@ const PARTS={
      net:(c,net,ckt)=>ckt.add({type:'D',nodes:[net(0),net(1)],model:c.spiceModel||MODELS[c.value]||MODELS['1N4148']})},
   NMOS:{cat:'Transistors',label:'N-MOSFET',def:'NMOS',pins:3,draw:'nmos',color:'#dcdcaa',footprint:'SOT-23',
      pinDefs:[{name:'D',dx:2,dy:-2},{name:'G',dx:-2,dy:0},{name:'S',dx:2,dy:2}],
-     net:(c,net,ckt)=>ckt.add({type:'M',nodes:[net(0),net(1),net(2)],model:c.spiceModel||MOS_MODELS.NMOS})},
+     net:(c,net,ckt)=>ckt.add({type:'M',nodes:[net(0),net(1),net(2)],model:c.spiceModel||MOS_CATALOG[c.value]||MOS_MODELS.NMOS})},
   PMOS:{cat:'Transistors',label:'P-MOSFET',def:'PMOS',pins:3,draw:'pmos',color:'#dcdcaa',footprint:'SOT-23',
      pinDefs:[{name:'D',dx:2,dy:2},{name:'G',dx:-2,dy:0},{name:'S',dx:2,dy:-2}],
-     net:(c,net,ckt)=>ckt.add({type:'M',nodes:[net(0),net(1),net(2)],model:c.spiceModel||MOS_MODELS.PMOS})},
-  NPN:{cat:'Transistors',label:'NPN BJT',def:'NPN',pins:3,draw:'npn',color:'#f0a868',footprint:'SOT-23',
+     net:(c,net,ckt)=>ckt.add({type:'M',nodes:[net(0),net(1),net(2)],model:c.spiceModel||MOS_CATALOG[c.value]||MOS_MODELS.PMOS})},
+  NPN:{cat:'Transistors',label:'NPN BJT',def:'NPN',pins:3,draw:'npn',color:'#f0a868',footprint:'TO-92',
      pinDefs:[{name:'C',dx:2,dy:-2},{name:'B',dx:-2,dy:0},{name:'E',dx:2,dy:2}],
-     net:(c,net,ckt)=>ckt.add({type:'Q',nodes:[net(0),net(1),net(2)],model:c.spiceModel||BJT_MODELS.NPN})},
-  PNP:{cat:'Transistors',label:'PNP BJT',def:'PNP',pins:3,draw:'pnp',color:'#f0a868',footprint:'SOT-23',
+     net:(c,net,ckt)=>ckt.add({type:'Q',nodes:[net(0),net(1),net(2)],model:c.spiceModel||BJT_CATALOG[c.value]||BJT_MODELS.NPN})},
+  PNP:{cat:'Transistors',label:'PNP BJT',def:'PNP',pins:3,draw:'pnp',color:'#f0a868',footprint:'TO-92',
      pinDefs:[{name:'C',dx:2,dy:2},{name:'B',dx:-2,dy:0},{name:'E',dx:2,dy:-2}],
-     net:(c,net,ckt)=>ckt.add({type:'Q',nodes:[net(0),net(1),net(2)],model:c.spiceModel||BJT_MODELS.PNP})},
+     net:(c,net,ckt)=>ckt.add({type:'Q',nodes:[net(0),net(1),net(2)],model:c.spiceModel||BJT_CATALOG[c.value]||BJT_MODELS.PNP})},
   OPAMP:{cat:'Amplifiers',label:'Op-Amp',def:'ideal',pins:3,draw:'opamp',color:'#79c0ff',footprint:'SOIC-8',
      pinDefs:[{name:'+',dx:-3,dy:-2},{name:'-',dx:-3,dy:2},{name:'OUT',dx:3,dy:0}],
      net:(c,net,ckt)=>ckt.add({type:'E',nodes:[net(2),'0',net(0),net(1)],value:2e5})},
@@ -954,14 +983,21 @@ document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;
 /* properties popover */
 function openProps(c,x,y){const P=PARTS[c.type];const el=document.getElementById('props');
   let valField=`<label>Value</label><input id="pv" value="${c.value}">`;
-  if(c.type==='D'||c.type==='LED'){const opts=(c.type==='LED'?['LEDred','LEDgrn','LEDblu','LEDyel']:['1N4148','1N4007','1N5819']);
-    valField=`<label>Model</label><select id="pv">${opts.map(o=>`<option ${o===c.value?'selected':''}>${o}</option>`).join('')}</select>`;}
+  const sel=(opts,note)=>`<label>Model${note?` <span style="color:var(--dim);font-weight:400">${note}</span>`:''}</label><select id="pv">${opts.map(o=>`<option ${o===c.value?'selected':''}>${o}</option>`).join('')}</select>`;
+  if(c.type==='D')valField=sel(['1N4148','1N4001','1N4007','1N5819','BAT54']);
+  else if(c.type==='LED')valField=sel(['LEDred','LEDgrn','LEDblu','LEDyel']);
+  else if(c.type==='NPN')valField=sel(['NPN','2N2222','2N3904','BC547B','TIP31C'],'· Gummel-Poon');
+  else if(c.type==='PNP')valField=sel(['PNP','2N3906','BC557B'],'· Gummel-Poon');
+  else if(c.type==='NMOS')valField=sel(['NMOS','2N7000','BSS138','IRF540N','IRFZ44N'],'· Level-1 fit');
+  else if(c.type==='PMOS')valField=sel(['PMOS','IRF9540'],'· Level-1 fit');
   el.innerHTML=`<h4>${c.ref||P.label} · ${P.label}</h4>${valField}
     <label>Rotation</label><input id="pr" value="${c.rot}">
     <div class="row"><button class="del" onclick="delComp(${c.uid})">Delete</button><button class="ok" onclick="applyProps(${c.uid})">Apply</button></div>`;
   el.style.left=Math.min(x,canvas.width-240)+'px';el.style.top=Math.min(y,canvas.height-160)+'px';el.style.display='block';
   setTimeout(()=>document.getElementById('pv').focus(),0);}
-function applyProps(uid){const c=S.comps.find(x=>x.uid===uid);if(!c)return;c.value=document.getElementById('pv').value;c.rot=(+document.getElementById('pr').value||0)%360;hideProps();invalidate();draw();}
+function applyProps(uid){const c=S.comps.find(x=>x.uid===uid);if(!c)return;c.value=document.getElementById('pv').value;
+  if(catLookup(c.value)||['NPN','PNP','NMOS','PMOS'].includes(c.value))delete c.spiceModel;   // picked from the catalog: the part number now drives the model
+  c.rot=(+document.getElementById('pr').value||0)%360;hideProps();invalidate();draw();}
 function delComp(uid){S.comps=S.comps.filter(x=>x.uid!==uid);S.sel=null;hideProps();invalidate();draw();}
 function hideProps(){document.getElementById('props').style.display='none';}
 
@@ -1192,6 +1228,9 @@ function parseStructured(q){
   const parts=[],nets=[],layout={forced:[],columns:[],colXs:{}};let section='',curCol=-1;
   const colPush=(ci,ref)=>{const a=layout.columns[ci]=layout.columns[ci]||[];if(!a.includes(ref))a.push(ref);};
   const typeOf=(name,val)=>{const v=(val||'').toLowerCase();
+    const cat=catLookup(val);   // real part number (2N3904, IRF540N, 1N4007…) → its device class + catalog model
+    if(cat&&!cat.diode)return[cat.model.type==='npn'?'NPN':cat.model.type==='pnp'?'PNP':cat.model.type==='pmos'?'PMOS':'NMOS',cat.name];
+    if(cat&&cat.diode)return[/^led/i.test(cat.name)?'LED':'D',cat.name];
     if(/nmos/.test(v))return['NMOS',''];if(/pmos/.test(v))return['PMOS',''];if(/npn/.test(v))return['NPN',''];if(/pnp/.test(v))return['PNP',''];
     if(/op[- ]?amp|opamp/.test(v))return['OPAMP',''];
     if(/sine/.test(v))return['VAC',val];if(/ac[_ ]?source|^ac$/.test(v))return['VAC','sine 10 60'];   // AC source (default 10V 60Hz if unspecified)
@@ -1248,16 +1287,20 @@ function parseSpice(text){
     if(t==='R'){parts.push({ref:name,type:'R',value:tok[3]});addN(tok[1],name,0);addN(tok[2],name,1);}
     else if(t==='C'){parts.push({ref:name,type:'C',value:tok[3]});addN(tok[1],name,0);addN(tok[2],name,1);}
     else if(t==='L'){parts.push({ref:name,type:'L',value:tok[3]});addN(tok[1],name,0);addN(tok[2],name,1);}
-    else if(t==='D'){parts.push({ref:name,type:'D',model:{Is:1e-14,N:1}});addN(tok[1],name,0);addN(tok[2],name,1);}
+    else if(t==='D'){const dn=(tok[3]||'').trim();const dc=catLookup(dn);   // named diode (1N4148…) → catalog card
+      parts.push(dc?{ref:name,type:'D',value:dc.name}:{ref:name,type:'D',model:{Is:1e-14,N:1}});addN(tok[1],name,0);addN(tok[2],name,1);}
     else if(t==='I'){parts.push({ref:name,type:'I',value:tok[3]});addN(tok[1],name,0);addN(tok[2],name,1);}
     else if(t==='V'){parts.push({ref:name,type:'V',value:''+vDC(),ac:vAC()??0});addN(tok[1],name,0);addN(tok[2],name,1);}
-    else if(t==='M'){const mdl=tok[5],mm=models[mdl]||{};const ov={};tok.slice(6).forEach(kv=>{const p=kv.split('=');if(p[0]&&p[1]!==undefined)ov[p[0].trim().toLowerCase()]=parseVal(p[1]);});
+    else if(t==='M'){const mc=catLookup(tok[5]);
+      if(mc&&!models[tok[5]]){parts.push({ref:name,type:mc.model.type==='pmos'?'PMOS':'NMOS',value:mc.name});addN(tok[1],name,0);addN(tok[2],name,1);addN(tok[3],name,2);return;}
+      const mdl=tok[5],mm=models[mdl]||{};const ov={};tok.slice(6).forEach(kv=>{const p=kv.split('=');if(p[0]&&p[1]!==undefined)ov[p[0].trim().toLowerCase()]=parseVal(p[1]);});
       const type=(mm.tn==='PMOS'||/pmos/i.test(mdl))?'pmos':'nmos';const pp=Object.assign({},mm.params||{},ov);
       const model={type};if(pp.vto!==undefined)model.Vto=pp.vto;if(pp.kp!==undefined)model.Kp=pp.kp;if(pp.w!==undefined)model.W=pp.w;if(pp.l!==undefined)model.L=pp.l;if(pp.lambda!==undefined)model.lambda=pp.lambda;
       if(pp.cgso!==undefined)model.CGSO=pp.cgso;if(pp.cgdo!==undefined)model.CGDO=pp.cgdo;if(pp.cgs!==undefined)model.CGS=pp.cgs;if(pp.cgd!==undefined)model.CGD=pp.cgd;
       parts.push({ref:name,type:type==='pmos'?'PMOS':'NMOS',model});addN(tok[1],name,0);addN(tok[2],name,1);addN(tok[3],name,2);}
     else if(t==='E'){parts.push({ref:name,type:'OPAMP'});addN(tok[3],name,0);addN(tok[4],name,1);addN(tok[1],name,2);} // VCVS/op-amp: E out 0 + - gain
-    else if(t==='Q'){const mdl=tok[4],mm=models[mdl]||{};   // Q name C B E MODEL
+    else if(t==='Q'){const qc=catLookup(tok[4]);const mdl=tok[4],mm=models[mdl]||(qc?{tn:qc.model.type.toUpperCase(),params:{}}:{});   // Q name C B E MODEL
+      if(qc&&!models[mdl]){parts.push({ref:name,type:qc.model.type==='pnp'?'PNP':'NPN',value:qc.name});addN(tok[1],name,0);addN(tok[2],name,1);addN(tok[3],name,2);return;}
       const type=(mm.tn==='PNP'||/pnp/i.test(mdl))?'pnp':'npn';const pp=mm.params||{};
       const model={type};['is','bf','br','vaf','tf','cje','cjc'].forEach(k=>{if(pp[k]!==undefined)model[k==='is'?'Is':k==='tf'?'TF':k.toUpperCase()]=pp[k];});
       parts.push({ref:name,type:type==='pnp'?'PNP':'NPN',model});addN(tok[1],name,0);addN(tok[2],name,1);addN(tok[3],name,2);}
@@ -1580,6 +1623,20 @@ function fwLed(){const el=document.getElementById('fw-led');if(el)el.classList.t
 function fwSerial(s,nl){const el=document.getElementById('fw-serial');if(!el)return;el.textContent+=(''+s)+(nl?'\n':'');el.scrollTop=el.scrollHeight;
   const lines=el.textContent.split('\n');if(lines.length>400)el.textContent=lines.slice(-400).join('\n');}
 function fwRenderPins(){const el=document.getElementById('fw-pins');if(!el)return;let h='';for(let p=0;p<=13;p++){const hi=FW.pins[p]?'hi':'';h+=`<span class="fw-pin ${hi}">D${p}${FW.pins[p]?':HI':''}</span>`;}el.innerHTML=h;}
+/* ---- example sketches (loaded from the Examples dropdown) ---- */
+const FW_EXAMPLES={
+  blink:`// Blink - the hardware hello world\nvoid setup() {\n  pinMode(13, OUTPUT);\n  Serial.begin(9600);\n}\n\nvoid loop() {\n  digitalWrite(13, HIGH);\n  Serial.println("LED on");\n  delay(500);\n  digitalWrite(13, LOW);\n  Serial.println("LED off");\n  delay(500);\n}`,
+  sos:`// SOS beacon on pin 13 (dot=150ms, dash=450ms)\nvoid setup() {\n  pinMode(13, OUTPUT);\n}\n\nvoid pulse(int ms) {\n  digitalWrite(13, HIGH);\n  delay(ms);\n  digitalWrite(13, LOW);\n  delay(150);\n}\n\nvoid loop() {\n  pulse(150); pulse(150); pulse(150);   // S\n  delay(300);\n  pulse(450); pulse(450); pulse(450);   // O\n  delay(300);\n  pulse(150); pulse(150); pulse(150);   // S\n  delay(1200);\n}`,
+  counter:`// Serial counter - watch the monitor\nint n = 0;\nvoid setup() {\n  Serial.begin(9600);\n}\n\nvoid loop() {\n  n = n + 1;\n  Serial.print("count = ");\n  Serial.println(n);\n  delay(400);\n}`,
+  chaser:`// Pin chaser - walks a HIGH across D8-D13\nvoid setup() {\n  for (int p = 8; p <= 13; p++) pinMode(p, OUTPUT);\n}\n\nvoid loop() {\n  for (int p = 8; p <= 13; p++) {\n    digitalWrite(p, HIGH);\n    delay(120);\n    digitalWrite(p, LOW);\n  }\n}`};
+function fwLoadExample(k){if(!k||!FW_EXAMPLES[k])return;if(typeof fwStop==='function'&&FW.running)fwStop();
+  const ed=document.getElementById('fw-code');if(ed)ed.value=FW_EXAMPLES[k];
+  const sel=document.getElementById('fw-ex');if(sel)sel.value='';
+  const st=document.getElementById('fw-status');if(st)st.textContent='loaded "'+k+'" - press ▶ Run';}
+// Tab key indents in the sketch editor instead of leaving the field
+(function(){const ed=document.getElementById('fw-code');if(!ed||!ed.addEventListener)return;
+  ed.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();const s=ed.selectionStart,en=ed.selectionEnd;
+    ed.value=ed.value.slice(0,s)+'  '+ed.value.slice(en);ed.selectionStart=ed.selectionEnd=s+2;}});})();
 function fwDW(p,v){FW.pins[p]=v?1:0;if(p===13)fwLed();fwRenderPins();
   // bridge: if a net named D<p> or the schematic has this pin, could drive it (future). v1 = visual.
 }
@@ -1674,6 +1731,11 @@ function fpBounds(f){const xs=f.pads.map(p=>p.dx),ys=f.pads.map(p=>p.dy);
   return{minx:Math.min(...xs,0)-0.9,maxx:Math.max(...xs,0)+0.9,miny:Math.min(...ys,0)-0.9,maxy:Math.max(...ys,0)+0.9};}
 function padAt(gx,gy){for(const f of PCB.fps)for(const pd of f.pads){if(f.x+pd.dx===gx&&f.y+pd.dy===gy)return{f,pd,x:gx,y:gy,net:pd.net};}return null;}
 function pcb3d(){PCB.d3=!PCB.d3;const b=document.getElementById('pm-3d');if(b)b.classList.toggle('active',PCB.d3);if(pcbCanvas)pcbCanvas.style.cursor=PCB.d3?'grab':(PCB.mode==='select'?'default':'crosshair');drawPCB();}
+// resistor 4-band colour code computed from the actual value (black brown red … white; gold multiplier for sub-10Ω)
+const BANDC=['#161616','#6b3f22','#c0392b','#e67e22','#e1c542','#2e9e4f','#2860c8','#7d3fbf','#8a8a8a','#f2f2f2'];
+function resBands(v){const n=parseVal(v)||0;if(n<1)return['#c9a227','#161616','#c0c0c0'];
+  const e=Math.floor(Math.log10(n)),m=n/Math.pow(10,e);let d1=Math.floor(m),d2=Math.round((m-d1)*10);
+  if(d2>9){d2=0;d1++;}return[BANDC[Math.min(d1,9)],BANDC[Math.min(d2,9)],e-1===-1?'#c9a227':BANDC[Math.max(0,Math.min(e-1,9))]];}
 function shade(hex,f){const n=parseInt(hex.slice(1),16);const r=Math.round(((n>>16)&255)*f),g=Math.round(((n>>8)&255)*f),b=Math.round((n&255)*f);return`rgb(${r},${g},${b})`;}
 function draw3D(){
   const W=pcbCanvas.width,H=pcbCanvas.height;pctx.clearRect(0,0,W,H);pctx.fillStyle='#0a140a';pctx.fillRect(0,0,W,H);
@@ -1692,8 +1754,9 @@ function draw3D(){
   PCB.fps.forEach(f=>f.pads.forEach(pd=>{const[x,y]=iso(f.x+pd.dx,f.y+pd.dy,0);pctx.fillStyle='#e0b070';pctx.beginPath();pctx.arc(x,y,2.3*PCB.zoom,0,7);pctx.fill();}));
   // --- realistic 3D component bodies (recognizable silhouettes, painter-sorted) ---
   const poly=(pts,fill,stroke,sw)=>{pctx.beginPath();pts.forEach((p,i)=>i?pctx.lineTo(p[0],p[1]):pctx.moveTo(p[0],p[1]));pctx.closePath();if(fill){pctx.fillStyle=fill;pctx.fill();}if(stroke){pctx.strokeStyle=stroke;pctx.lineWidth=sw||1;pctx.stroke();}};
-  const ring=(cx,cy,z,r,n)=>{n=n||26;const p=[];for(let k=0;k<n;k++){const a=k/n*Math.PI*2;p.push(iso(cx+r*Math.cos(a),cy+r*Math.sin(a),z));}return p;};
-  const cyl=(cx,cy,r,z0,h,col)=>{const bot=ring(cx,cy,z0,r),top=ring(cx,cy,z0+h,r),n=bot.length,qs=[];
+  const ring=(cx,cy,z,r,n,flat)=>{n=n||26;const p=[];for(let k=0;k<n;k++){const a=k/n*Math.PI*2;let yy=cy+r*Math.sin(a);
+    if(flat&&yy<cy-r*0.32)yy=cy-r*0.32;p.push(iso(cx+r*Math.cos(a),yy,z));}return p;};   // flat = TO-92 D-shaped cross-section
+  const cyl=(cx,cy,r,z0,h,col,flat)=>{const bot=ring(cx,cy,z0,r,26,flat),top=ring(cx,cy,z0+h,r,26,flat),n=bot.length,qs=[];
     for(let k=0;k<n;k++){const j=(k+1)%n,q=[bot[k],bot[j],top[j],top[k]];qs.push({q,ay:(q[0][1]+q[2][1])/2});}
     const ys=qs.map(o=>o.ay),mn=Math.min(...ys),mx=Math.max(...ys);qs.sort((a,b)=>a.ay-b.ay);
     qs.forEach(o=>poly(o.q,shade(col,0.5+0.45*((o.ay-mn)/((mx-mn)||1)))));poly(top,shade(col,.98),'rgba(0,0,0,.22)');};
@@ -1704,20 +1767,55 @@ function draw3D(){
   const dot3=(cx,cy,z,r,col)=>{const[x,y]=iso(cx,cy,z);pctx.fillStyle=col;pctx.beginPath();pctx.arc(x,y,r,0,7);pctx.fill();};
   const reflab=(cx,cy,z,ref,col)=>{const[lx,ly]=iso(cx,cy,z);pctx.fillStyle=col||'#f2f2f2';pctx.font=`${7*PCB.zoom}px var(--mono)`;pctx.textAlign='center';pctx.textBaseline='middle';pctx.fillText(ref,lx,ly);pctx.textBaseline='alphabetic';};
   const vstripe=(cx,cy,r,z0,h,col)=>poly([iso(cx-r,cy,z0),iso(cx-r,cy,z0+h),iso(cx-r*0.45,cy,z0+h),iso(cx-r*0.45,cy,z0)],col);
+  // lying cylinder along X (axial parts): painter-sorted wall strips + colour bands + end caps
+  const hcyl=(x0,x1,cyy,zc,rr,colBody,bands)=>{const N=16,pt=a=>[cyy+rr*Math.sin(a),zc+rr*Math.cos(a)];
+    const walls=[];for(let k=0;k<N;k++){const a0=k/N*2*Math.PI,a1=(k+1)/N*2*Math.PI,[y0,z0]=pt(a0),[y1,z1]=pt(a1);
+      const sh=0.52+0.42*Math.max(0,Math.cos((a0+a1)/2));walls.push({y0,z0,y1,z1,sh,dep:depth((x0+x1)/2,(y0+y1)/2)});}
+    walls.sort((a,b)=>a.dep-b.dep);
+    walls.forEach(wl=>{const seg=(f0,f1,c)=>{const xa=x0+(x1-x0)*f0,xb=x0+(x1-x0)*f1;
+        poly([iso(xa,wl.y0,wl.z0),iso(xb,wl.y0,wl.z0),iso(xb,wl.y1,wl.z1),iso(xa,wl.y1,wl.z1)],shade(c,wl.sh));};
+      seg(0,1,colBody);(bands||[]).forEach(bd=>seg(bd.f0,bd.f1,bd.col));});
+    [[x0,x1][depth(x0,cyy)<depth(x1,cyy)?0:1]].forEach(xe=>{const p=[];for(let k=0;k<N;k++){const[yy,zz]=pt(k/N*2*Math.PI);p.push(iso(xe,yy,zz));}poly(p,shade(colBody,.75),'rgba(0,0,0,.25)');});};
+  // component lead: pad → up → into the body end
+  const lead=(px,py,bx2,by2,bz)=>{pctx.strokeStyle='#b9bec4';pctx.lineWidth=Math.max(1,1.1*PCB.zoom);
+    const[ax2,ay2]=iso(px,py,0),[m1,m2]=iso(px,py,bz),[c1,c2]=iso(bx2,by2,bz);
+    pctx.beginPath();pctx.moveTo(ax2,ay2);pctx.lineTo(m1,m2);pctx.lineTo(c1,c2);pctx.stroke();};
   PCB.fps.slice().sort((a,b)=>depth(a.x,a.y)-depth(b.x,b.y)).forEach(f=>{
     const b=fpBounds(f),ax=f.x+b.minx,bx=f.x+b.maxx,ay=f.y+b.miny,by=f.y+b.maxy,cx=f.x,cy=f.y,t=f.type;
     const col=PARTS[t]?PARTS[t].color:'#8a8a8a',w=bx-ax,d=by-ay,r=Math.max(0.5,Math.min(w,d)*0.42);
+    const P0=f.pads[0]?[f.x+f.pads[0].dx,f.y+f.pads[0].dy]:[ax,cy],P1=f.pads[1]?[f.x+f.pads[1].dx,f.y+f.pads[1].dy]:[bx,cy];
     const big=/[um]/i.test(f.value||'');
-    if(t==='C'&&big){cyl(cx,cy,r,0.2,2.8,'#2a5db0');vstripe(cx,cy,r,0.2,2.8,'rgba(225,228,235,.85)');dot3(cx,cy,3.0,1.1*PCB.zoom,'#5a86c8');reflab(cx,cy,3.0,f.ref,'#eef2f7');}
-    else if(t==='C'){box3(ax,ay,bx,by,0.15,1.3,'#3a6bbf');reflab(cx,cy,1.5,f.ref,'#eef2f7');}
-    else if(t==='L'){cyl(cx,cy,r,0.2,1.8,'#6b4a2a');reflab(cx,cy,2.0,f.ref,'#f0e0c8');}
-    else if(t==='LED'){cyl(cx,cy,r*0.9,0.2,0.5,'#7a1616');const cap=ring(cx,cy,0.75,r*0.9,26);poly(cap,'rgba(255,86,74,.92)','rgba(0,0,0,.25)');dot3(cx-r*0.3,cy-r*0.3,0.8,1.5*PCB.zoom,'rgba(255,205,196,.9)');}
-    else if(t==='D'||t==='DZ'){box3(ax,ay,bx,by,0.15,1.0,'#161616');poly([iso(bx-w*0.28,ay,1.16),iso(bx-w*0.12,ay,1.16),iso(bx-w*0.12,by,1.16),iso(bx-w*0.28,by,1.16)],'#e6e6e6');reflab(cx,cy,1.18,f.ref,'#dcdcdc');}
-    else if(t==='R'){box3(ax,ay,bx,by,0.15,0.9,'#c9a06a');['#5a3a1a','#141414','#c0392b'].forEach((bc,i)=>{const xp=ax+w*(0.3+i*0.16);poly([iso(xp,ay,1.06),iso(xp+w*0.07,ay,1.06),iso(xp+w*0.07,by,1.06),iso(xp,by,1.06)],bc);});reflab(cx,cy,1.08,f.ref,'#3a2a12');}
-    else if(/MOS|NPN|PNP/.test(t)){box3(ax,ay,bx,by,0.15,1.05,'#1b1b1b');dot3(ax+w*0.22,ay+d*0.22,1.22,0.9*PCB.zoom,'#484848');reflab(cx,cy,1.24,f.ref,'#d6d6d6');}
+    const isPowerFET=/MOS/.test(t)&&MOS_CATALOG[f.value]&&MOS_CATALOG[f.value].Kp>=10;
+    if(t==='R'){const e0=ax+w*0.24,e1=bx-w*0.24,zc=0.8;lead(P0[0],P0[1],e0,cy,zc);lead(P1[0],P1[1],e1,cy,zc);
+      const bd=resBands(f.value);hcyl(e0,e1,cy,zc,0.5,'#d8c49a',[{f0:.16,f1:.24,col:bd[0]},{f0:.34,f1:.42,col:bd[1]},{f0:.52,f1:.6,col:bd[2]},{f0:.76,f1:.84,col:'#c9a227'}]);
+      reflab(cx,cy,1.6,f.ref,'#e8e8e8');}
+    else if(t==='D'||t==='DZ'){const e0=ax+w*0.28,e1=bx-w*0.28,zc=0.62;lead(P0[0],P0[1],e0,cy,zc);lead(P1[0],P1[1],e1,cy,zc);
+      hcyl(e0,e1,cy,zc,0.4,'#141414',[{f0:.76,f1:.88,col:'#e8e8e8'}]);reflab(cx,cy,1.35,f.ref,'#dcdcdc');}
+    else if(t==='L'){const e0=ax+w*0.22,e1=bx-w*0.22,zc=0.8;lead(P0[0],P0[1],e0,cy,zc);lead(P1[0],P1[1],e1,cy,zc);
+      const wind=[];for(let k=0;k<5;k++)wind.push({f0:.14+k*.16,f1:.2+k*.16,col:'#5a3d20'});
+      hcyl(e0,e1,cy,zc,0.55,'#8a6136',wind);reflab(cx,cy,1.7,f.ref,'#f0e0c8');}
+    else if(t==='C'&&big){cyl(cx,cy,r,0.2,2.8,'#2a5db0');vstripe(cx,cy,r,0.2,2.8,'rgba(225,228,235,.85)');
+      const tc=ring(cx,cy,3.02,r*0.94,26);poly(tc,'#c9ced4','rgba(0,0,0,.3)');   // aluminium top with vent score
+      poly([iso(cx-r*0.6,cy,3.04),iso(cx+r*0.6,cy,3.04),iso(cx+r*0.6,cy+0.06,3.04),iso(cx-r*0.6,cy+0.06,3.04)],'#9aa0a8');
+      poly([iso(cx,cy-r*0.6,3.04),iso(cx,cy+r*0.6,3.04),iso(cx+0.06,cy+r*0.6,3.04),iso(cx+0.06,cy-r*0.6,3.04)],'#9aa0a8');
+      reflab(cx,cy-r-0.5,3.1,f.ref,'#eef2f7');}
+    else if(t==='C'){lead(P0[0],P0[1],cx-0.25,cy,0.5);lead(P1[0],P1[1],cx+0.25,cy,0.5);
+      cyl(cx,cy,r*0.6,0.5,0.8,'#d9b23c');reflab(cx,cy,1.55,f.ref,'#4a3a10');}   // ceramic disc
+    else if(t==='LED'){lead(P0[0],P0[1],cx-0.2,cy,0.3);lead(P1[0],P1[1],cx+0.2,cy,0.3);
+      cyl(cx,cy,r*0.92,0.15,0.35,'#8a1a1a');cyl(cx,cy,r*0.78,0.5,0.9,'rgba(224,60,50,.94)');
+      const dome=ring(cx,cy,1.42,r*0.5,22);poly(dome,'rgba(255,120,108,.95)');dot3(cx-r*0.22,cy-r*0.22,1.45,1.3*PCB.zoom,'rgba(255,215,205,.95)');}
+    else if(isPowerFET){ // TO-220: silver tab behind a black molded body
+      box3(ax+w*0.12,ay,bx-w*0.12,ay+d*0.34,0.15,2.7,'#b9bfc6');
+      box3(ax+w*0.08,ay+d*0.3,bx-w*0.08,by-d*0.06,0.15,1.9,'#141414','rgba(255,255,255,.06)');
+      f.pads.forEach(pd=>lead(f.x+pd.dx,f.y+pd.dy,f.x+pd.dx,ay+d*0.6,0.6));
+      reflab(cx,cy+d*0.14,2.0,f.value||f.ref,'#d6d6d6');}
+    else if(/MOS|NPN|PNP/.test(t)){ // TO-92: D-shaped half-cylinder, flat face forward
+      f.pads.forEach(pd=>lead(f.x+pd.dx,f.y+pd.dy,cx+(f.x+pd.dx-cx)*0.3,cy,0.45));
+      cyl(cx,cy,0.95,0.15,1.5,'#181818',true);reflab(cx,cy,1.75,f.value&&f.value!==t?f.value:f.ref,'#d6d6d6');}
     else if(t==='OPAMP'||t==='LM358'){const h=1.7;box3(ax,ay,bx,by,0.15,h,'#101014','rgba(255,255,255,.05)');
       f.pads.forEach(pd=>{const px=f.x+pd.dx,py=f.y+pd.dy;poly([iso(px-0.28,py-0.14,0.14),iso(px+0.28,py-0.14,0.14),iso(px+0.28,py+0.14,0.34),iso(px-0.28,py+0.14,0.34)],'#c6cace');});
-      dot3(ax+w*0.2,ay+d*0.2,h+0.16,1.5*PCB.zoom,'#33333c');reflab(cx,cy,h+0.02,f.ref,'#e6e6ea');}
+      const nc=ring(ax+w*0.08,cy,h+0.155,0.42,14);poly(nc,'#08080c');   // pin-1 end notch
+      dot3(ax+w*0.2,ay+d*0.22,h+0.16,1.3*PCB.zoom,'#33333c');reflab(cx,cy,h+0.02,f.value||f.ref,'#e6e6ea');}
     else{box3(ax,ay,bx,by,0.15,1.2,col);reflab(cx,cy,1.35,f.ref,'#0a140a');}
   });
   const st=document.getElementById('pcb-stat');if(st)st.innerHTML=`<b>3D board</b> · ${PCB.fps.length} parts · <span style="color:var(--dim)">drag to orbit · ± to zoom</span>`;
@@ -1730,6 +1828,9 @@ function drawPCB(){
   // SUBSTRATE + SOLDERMASK: bare FR4 (tan) when mask is off, green coating when on
   pctx.fillStyle=L.mask?'#0e3d22':'#3a3016';pctx.fillRect(bx,by,bw,bh);
   if(L.mask){pctx.fillStyle='rgba(255,255,255,.03)';pctx.fillRect(bx,by,bw,bh*0.5);}   // subtle sheen
+  // engineering grid: 1mm dots inside the board area
+  const gs=MMPP*z;if(gs>5){pctx.fillStyle='rgba(255,255,255,.09)';
+    for(let gx=0;gx<=48;gx++)for(let gy=0;gy<=36;gy++){const[dx,dy]=toPcb(gx,gy);pctx.fillRect(dx,dy,1,1);}}
   // EDGE.CUTS: board outline
   if(L.outline){pctx.strokeStyle='#e7c25a';pctx.lineWidth=2;pctx.strokeRect(bx,by,bw,bh);}
   // COPPER: bottom first (dimmed), then top
@@ -1740,10 +1841,11 @@ function drawPCB(){
   // ratsnest (unrouted airwires) - always shown as a design aid
   const rn=ratsnest();pctx.strokeStyle='rgba(150,190,255,.5)';pctx.lineWidth=1;
   rn.forEach(([a,b])=>{const[ax,ay]=toPcb(a.x,a.y),[bx2,by2]=toPcb(b.x,b.y);pctx.beginPath();pctx.moveTo(ax,ay);pctx.lineTo(bx2,by2);pctx.stroke();});
-  // COPPER PADS (annular ring) + DRILL holes
+  // COPPER PADS (annular ring; SQUARE pad marks pin 1 of multi-pin parts, KiCad-style) + DRILL holes
   const copperOn=L.top||L.bottom;
-  PCB.fps.forEach(f=>f.pads.forEach(pd=>{const[px,py]=toPcb(f.x+pd.dx,f.y+pd.dy);const r=3.6*z;
-    if(copperOn){pctx.fillStyle=L.top?'#e2a24a':'#8b6a2f';pctx.beginPath();pctx.arc(px,py,r,0,7);pctx.fill();}
+  PCB.fps.forEach(f=>f.pads.forEach((pd,pi)=>{const[px,py]=toPcb(f.x+pd.dx,f.y+pd.dy);const r=3.6*z;
+    if(copperOn){pctx.fillStyle=L.top?'#e2a24a':'#8b6a2f';
+      if(pi===0&&f.pads.length>2){pctx.fillRect(px-r,py-r,r*2,r*2);}else{pctx.beginPath();pctx.arc(px,py,r,0,7);pctx.fill();}}
     if(L.drill){pctx.fillStyle=L.mask?'#0e3d22':'#3a3016';pctx.beginPath();pctx.arc(px,py,r*(copperOn?0.42:0.62),0,7);pctx.fill();
       pctx.strokeStyle='rgba(0,0,0,.4)';pctx.lineWidth=1;pctx.stroke();}}));
   // VIAS
@@ -1779,6 +1881,7 @@ function pcbDown(e){if(PCB.d3){PCB.orbit={mx:e.clientX,my:e.clientY,yaw:PCB.yaw,
 function pcbMove(e){
   if(PCB.orbit){PCB.yaw=PCB.orbit.yaw+(e.clientX-PCB.orbit.mx)*0.012;PCB.pitch=Math.max(0.12,Math.min(1.45,PCB.orbit.pitch-(e.clientY-PCB.orbit.my)*0.01));drawPCB();return;}
   PCB.mouse=pcbXY(e);
+  const xy=document.getElementById('pcb-xy');if(xy&&!PCB.d3)xy.textContent=`x ${PCB.mouse[0].toFixed(0)}.0  y ${PCB.mouse[1].toFixed(0)}.0 mm`;
   if(PCB.drag){PCB.drag.f.x=Math.round(PCB.drag.ox+(PCB.mouse[0]-PCB.drag.gx));PCB.drag.f.y=Math.round(PCB.drag.oy+(PCB.mouse[1]-PCB.drag.gy));drawPCB();}
   else if(PCB.route)drawPCB();}
 
@@ -1843,22 +1946,59 @@ function bbNodeMap(){
   return{node:h=>find('col:'+h.col)};
 }
 function drawBB(){
-  if(!bctx)return;const W=bbCanvas.width,H=bbCanvas.height;bctx.clearRect(0,0,W,H);bctx.fillStyle='#141821';bctx.fillRect(0,0,W,H);
+  if(!bctx)return;const W=bbCanvas.width,H=bbCanvas.height;bctx.clearRect(0,0,W,H);bctx.fillStyle='#12151c';bctx.fillRect(0,0,W,H);
   const s=BBP*BB.zoom,ox=BB.ox,oy=BB.oy;const colX=c=>ox+c*s;
   const railYp=oy, railYn=oy+s, mainY=oy+3*s;const rowY=r=>mainY+r*s+(r>=5?s:0);
-  bctx.fillStyle='#efe7d5';bctx.fillRect(ox-s,oy-s*0.6,(BB.cols+1)*s,12.5*s);
-  bctx.strokeStyle='#d05555';bctx.lineWidth=2;bctx.beginPath();bctx.moveTo(colX(0),railYp-3);bctx.lineTo(colX(BB.cols-1),railYp-3);bctx.stroke();
-  bctx.strokeStyle='#5570d0';bctx.beginPath();bctx.moveTo(colX(0),railYn+3);bctx.lineTo(colX(BB.cols-1),railYn+3);bctx.stroke();
-  bctx.fillStyle='#c7bfae';for(let c=0;c<BB.cols;c++){[railYp,railYn].forEach(y=>{bctx.beginPath();bctx.arc(colX(c),y,s*0.15,0,7);bctx.fill();});
-    for(let r=0;r<10;r++){bctx.beginPath();bctx.arc(colX(c),rowY(r),s*0.15,0,7);bctx.fill();}}
-  BB.jumpers.forEach(j=>{const y1=j.rail==='+'?railYp-3:railYn+3;bctx.strokeStyle=j.rail==='+'?'#d05555':'#5570d0';bctx.lineWidth=2.5;
-    bctx.beginPath();bctx.moveTo(colX(j.col),rowY(0));bctx.lineTo(colX(j.col),y1);bctx.stroke();});
+  // board body: ivory plastic with soft edge + centre channel groove
+  const bX=ox-s*1.6,bY=oy-s*0.9,bW=(BB.cols+2.2)*s,bH=13.4*s;
+  bctx.fillStyle='rgba(0,0,0,.45)';bctx.fillRect(bX+3,bY+4,bW,bH);
+  bctx.fillStyle='#ece4d2';bctx.fillRect(bX,bY,bW,bH);
+  bctx.strokeStyle='#c9c0ab';bctx.lineWidth=1.5;bctx.strokeRect(bX,bY,bW,bH);
+  const chY=rowY(4)+s*0.5;bctx.fillStyle='#dcd3bd';bctx.fillRect(bX,chY-s*0.42,bW,s*0.84);
+  bctx.strokeStyle='#c2b8a0';bctx.lineWidth=1;bctx.strokeRect(bX,chY-s*0.42,bW,s*0.84);
+  // rails with +/- end marks
+  bctx.strokeStyle='#cf4f4f';bctx.lineWidth=2;bctx.beginPath();bctx.moveTo(colX(0),railYp-s*0.42);bctx.lineTo(colX(BB.cols-1),railYp-s*0.42);bctx.stroke();
+  bctx.strokeStyle='#5570d0';bctx.beginPath();bctx.moveTo(colX(0),railYn+s*0.42);bctx.lineTo(colX(BB.cols-1),railYn+s*0.42);bctx.stroke();
+  bctx.font=`${s*0.66}px Consolas,monospace`;bctx.textAlign='center';
+  bctx.fillStyle='#cf4f4f';bctx.fillText('+',colX(0)-s*0.8,railYp+s*0.2);bctx.fillText('+',colX(BB.cols-1)+s*0.8,railYp+s*0.2);
+  bctx.fillStyle='#5570d0';bctx.fillText('-',colX(0)-s*0.8,railYn+s*0.28);bctx.fillText('-',colX(BB.cols-1)+s*0.8,railYn+s*0.28);
+  // row letters a-e / f-j and column numbers every 5 (real breadboard markings)
+  bctx.fillStyle='#8f8674';bctx.font=`${s*0.42}px Consolas,monospace`;
+  'abcdefghij'.split('').forEach((L,r)=>{bctx.fillText(L,ox-s*1.1,rowY(r)+s*0.15);});
+  for(let c=0;c<BB.cols;c+=5){bctx.fillText(String(c+1),colX(c),mainY-s*0.55);}
+  // tie-point holes: dark square sockets
+  const hole=(x,y)=>{bctx.fillStyle='#4a4438';bctx.fillRect(x-s*0.17,y-s*0.17,s*0.34,s*0.34);bctx.fillStyle='#26221a';bctx.fillRect(x-s*0.11,y-s*0.11,s*0.22,s*0.22);};
+  for(let c=0;c<BB.cols;c++){[railYp,railYn].forEach(y=>hole(colX(c),y));for(let r=0;r<10;r++)hole(colX(c),rowY(r));}
+  // rail jumpers, coloured by polarity, with a slight arc
+  BB.jumpers.forEach(j=>{const x=colX(j.col),y0=rowY(0),y1=j.rail==='+'?railYp-s*0.42:railYn+s*0.42;
+    bctx.strokeStyle=j.rail==='+'?'#cf4f4f':'#5570d0';bctx.lineWidth=Math.max(2,s*0.16);bctx.lineCap='round';
+    bctx.beginPath();bctx.moveTo(x,y0);bctx.quadraticCurveTo(x+s*0.9,(y0+y1)/2,x,y1);bctx.stroke();});
+  // components: real bodies drawn along the lead axis
+  const LEDCOL={LEDred:'#e04438',LEDgrn:'#3fae5a',LEDblu:'#3d7ee0',LEDyel:'#ddb93c'};
   BB.place.forEach(pl=>{const P=PARTS[pl.type];const h0=pl.pins[0].hole,h1=(pl.pins[1]||pl.pins[0]).hole;
     const x0=colX(h0.col),y0=rowY(h0.row),x1=colX(h1.col),y1=rowY(h1.row);
-    bctx.strokeStyle=P.color;bctx.lineWidth=2;bctx.beginPath();bctx.moveTo(x0,y0);bctx.lineTo(x1,y1);bctx.stroke();
-    const mx=(x0+x1)/2,my=(y0+y1)/2;bctx.fillStyle='#242a33';bctx.fillRect(mx-s*0.75,my-s*0.32,s*1.5,s*0.64);
-    bctx.fillStyle=P.color;bctx.font=`${s*0.46}px var(--mono)`;bctx.textAlign='center';bctx.textBaseline='middle';bctx.fillText(pl.ref,mx,my);bctx.textBaseline='alphabetic';
-    [[x0,y0],[x1,y1]].forEach(([x,y])=>{bctx.fillStyle='#c98a3a';bctx.beginPath();bctx.arc(x,y,s*0.19,0,7);bctx.fill();});});
+    const mx=(x0+x1)/2,my=(y0+y1)/2,len=Math.hypot(x1-x0,y1-y0)||s,ang=Math.atan2(y1-y0,x1-x0),t=pl.type;
+    // leads
+    bctx.strokeStyle='#9aa0a6';bctx.lineWidth=Math.max(1.4,s*0.1);bctx.lineCap='round';
+    bctx.beginPath();bctx.moveTo(x0,y0);bctx.lineTo(x1,y1);bctx.stroke();
+    bctx.save();bctx.translate(mx,my);bctx.rotate(ang);
+    const bw=Math.min(len*0.55,s*2.2),bh=s*0.62;
+    if(t==='R'){bctx.fillStyle='#d8c49a';bctx.fillRect(-bw/2,-bh/2,bw,bh);bctx.strokeStyle='#b09b6d';bctx.lineWidth=1;bctx.strokeRect(-bw/2,-bh/2,bw,bh);
+      const bd=resBands(S.comps.find(c=>c.ref===pl.ref)?.value||'1k');
+      bd.concat(['#c9a227']).forEach((bc,i)=>{bctx.fillStyle=bc;bctx.fillRect(-bw/2+bw*(0.16+i*0.2),-bh/2,bw*0.09,bh);});}
+    else if(t==='D'||t==='DZ'){bctx.fillStyle='#141414';bctx.fillRect(-bw/2,-bh/2,bw,bh);bctx.fillStyle='#e8e8e8';bctx.fillRect(bw*0.26,-bh/2,bw*0.1,bh);}
+    else if(t==='LED'){const lc=LEDCOL[S.comps.find(c=>c.ref===pl.ref)?.value]||'#e04438';
+      bctx.fillStyle=lc;bctx.beginPath();bctx.arc(0,0,s*0.55,0,7);bctx.fill();bctx.strokeStyle='rgba(0,0,0,.25)';bctx.lineWidth=1;bctx.stroke();
+      bctx.fillStyle='rgba(255,255,255,.55)';bctx.beginPath();bctx.arc(-s*0.18,-s*0.18,s*0.14,0,7);bctx.fill();}
+    else if(t==='C'){const v=S.comps.find(c=>c.ref===pl.ref)?.value||'';const big=/[um]/i.test(v);
+      if(big){bctx.fillStyle='#2a5db0';bctx.beginPath();bctx.arc(0,0,s*0.62,0,7);bctx.fill();bctx.fillStyle='rgba(230,233,238,.85)';bctx.fillRect(-s*0.62,-s*0.5,s*0.2,s);}
+      else{bctx.fillStyle='#d9b23c';bctx.beginPath();bctx.arc(0,0,s*0.5,0,7);bctx.fill();bctx.strokeStyle='#a8871f';bctx.lineWidth=1;bctx.stroke();}}
+    else if(/NPN|PNP|MOS/.test(t)){bctx.fillStyle='#181818';bctx.beginPath();bctx.arc(0,0,s*0.62,Math.PI*0.15,Math.PI*0.85,true);bctx.closePath();bctx.fill();
+      bctx.fillRect(-s*0.62*Math.cos(Math.PI*0.15),-s*0.2,2*s*0.62*Math.cos(Math.PI*0.15),s*0.35);}
+    else{bctx.fillStyle='#3d4653';bctx.fillRect(-bw/2,-bh/2,bw,bh);bctx.strokeStyle='#2b323d';bctx.strokeRect(-bw/2,-bh/2,bw,bh);}
+    bctx.restore();
+    // reference designator above the body
+    bctx.fillStyle='#3a3428';bctx.font=`${s*0.44}px Consolas,monospace`;bctx.textAlign='center';bctx.fillText(pl.ref,mx,my-s*0.85);});
   const st=document.getElementById('bb-stat');if(st)st.innerHTML=`<b>${BB.place.length}</b> parts · <b>${BB.jumpers.length}</b> rail jumpers · connectivity mirrors the schematic netlist`;
 }
 
