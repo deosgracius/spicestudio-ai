@@ -5,7 +5,7 @@ function mk(){const c=createCanvas(1000,600);c.addEventListener=()=>{};c.getBoun
 const cv={};function el(id){if(id&&/canvas|sch/.test(id)){if(!cv[id])cv[id]=mk();return cv[id];}const e={style:{},dataset:{},classList:{add(){},remove(){},toggle(){},contains:()=>false},addEventListener(){},appendChild(){},removeChild(){},querySelectorAll:()=>[],focus(){},remove(){},clientWidth:1000,clientHeight:500,value:'',textContent:'',getBoundingClientRect:()=>({left:0,top:0,width:1000,height:500}),getContext:()=>mk().getContext('2d')};e.lastChild={remove(){}};e.parentElement={clientWidth:1000,clientHeight:500};Object.defineProperty(e,'innerHTML',{get(){return'';},set(){}});return e;}
 global.document={getElementById:el,createElement:()=>el(''),querySelectorAll:()=>[],addEventListener(){},body:el('')};
 global.window={addEventListener(){},location:{href:''}};global.localStorage={getItem:()=>null,setItem(){}};global.fetch=async()=>({json:async()=>({})});global.alert=()=>{};
-let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__new=newSheet;global.__place=place;global.__bc=buildCircuit;global.__ps=parseStructured;global.__spice=parseSpice;global.__bands=resBands;global.__cat=BJT_CATALOG;';
+let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__new=newSheet;global.__place=place;global.__bc=buildCircuit;global.__ps=parseStructured;global.__spice=parseSpice;global.__bands=resBands;global.__cat=BJT_CATALOG;global.__LB=LIB_BJT;global.__LD=LIB_DIO;global.__LM=LIB_MOS;global.__look=catLookup;';
 (0,eval)(js);const S=global.__S;let pass=0,fail=0;const chk=(c,m,d)=>{console.log((c?'PASS':'FAIL')+'  '+m+(d?' - '+d:''));c?pass++:fail++;};
 
 // (1) part number on the component drives the engine model (values = LTspice standard.bjt cards)
@@ -44,5 +44,19 @@ const b47k=global.__bands('4.7k');
 chk(b47k[0]==='#e1c542'&&b47k[1]==='#7d3fbf'&&b47k[2]==='#c0392b','4.7k → yellow-violet-red',b47k.join(','));
 const b330=global.__bands('330');
 chk(b330[0]==='#e67e22'&&b330[1]==='#e67e22'&&b330[2]==='#6b3f22','330 → orange-orange-brown',b330.join(','));
+
+// (5) FULL library integration: all usable LTspice standard cards are importable
+chk(Object.keys(global.__LB).length>=1500,'full BJT library embedded',Object.keys(global.__LB).length+' parts');
+chk(Object.keys(global.__LD).length>=2300,'full diode library embedded',Object.keys(global.__LD).length+' parts');
+chk(Object.keys(global.__LM).length>=1400,'full MOSFET library embedded',Object.keys(global.__LM).length+' parts');
+global.__new();global.__place('NPN',5,5,'BC846B');
+const lq=global.__bc(false).ckt.elements.find(e=>e.type==='Q');
+chk(lq&&lq.model.BF===324.4,'SMD part BC846B (full lib) reaches the engine (BF=324.4)',lq&&lq.model.BF);
+global.__new();global.__place('PMOS',5,5,'IRLML6402');
+const lm=global.__bc(false).ckt.elements.find(e=>e.type==='M');
+chk(lm&&lm.model.Vto===-0.55&&lm.model.type==='pmos','SMD P-FET IRLML6402 (full lib) resolves (Vto=-0.55)',lm&&lm.model.Vto);
+chk(global.__look('1N4148').model.Is===2.52e-9,'curated card still wins over the lib duplicate for 1N4148');
+const sp3=global.__ps('COMPONENTS:\nQ1 = MMBT3904\nV1 = 5V, Ground = 0V\nNETS:\nV1 -> Q1.Collector\nGround -> Q1.Emitter');
+chk(sp3.parts.find(x=>x.ref==='Q1').value==='MMBT3904','structured block accepts any full-lib part number');
 
 console.log('\n'+pass+' passed, '+fail+' failed');process.exit(fail?1:0);
