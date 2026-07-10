@@ -552,33 +552,67 @@ class Circuit{
    Each 2-pin part: pins at (-1,0),(+1,0) grid units around center; W=2 cells.
    ============================================================================ */
 const MODELS={
-  // Diodes - authentic SPICE .model params (industry-standard model cards)
-  '1N4148':{Is:2.52e-9,N:1.752,CJO:4e-12,TT:11.5e-9},          // small-signal, Vishay/onsemi
-  '1N4001':{Is:14.11e-9,N:1.984,CJO:25.9e-12,TT:5.7e-6},       // 1A rectifier
-  '1N4007':{Is:7.02e-9,N:1.8,CJO:26e-12,TT:4.3e-6},            // 1A 1000V rectifier
-  '1N5819':{Is:3.2e-7,N:1.05,CJO:110e-12},                     // 1A Schottky
-  'BAT54' :{Is:1.04e-7,N:1.08,CJO:10e-12},                     // small-signal Schottky
+  // Diodes - real cards from the LTspice standard.dio library (github.com/HenniePeters/LTSpice mirror)
+  '1N4148':{Is:2.52e-9,N:1.752,CJO:4e-12,TT:2e-8},
+  '1N914' :{Is:2.52e-9,N:1.752,CJO:4e-12,TT:2e-8},
+  '1N4001':{Is:1.411e-8,N:1.984,CJO:2.589e-11,TT:5.7e-6},
+  '1N4007':{Is:7.028e-9,N:1.808,CJO:1e-11,TT:1e-7},
+  '1N5399':{Is:2.24e-9,N:1.59,CJO:3.65e-11,TT:4.2e-6},
+  'UF4007':{Is:3.288e-6,N:3.977,CJO:2.927e-11,TT:1.85e-7},
+  '1N5817':{Is:3.17e-5,N:1.373,CJO:1.9e-10},
+  '1N5818':{Is:3.17e-5,N:1.373,CJO:1.6e-10},
+  '1N5819':{Is:3.17e-5,N:1.373,CJO:1.1e-10},
+  'BAT54' :{Is:1e-7,N:1,CJO:1.2e-11},
+  'BAT85' :{Is:2.117e-7,N:1.016,CJO:1.114e-11},
+  'MBR0520L':{Is:8.25e-8,N:0.7228,CJO:1.8e-10},
   'LEDred':{Is:1e-16,N:1.9},'LEDgrn':{Is:5e-18,N:2.0},'LEDblu':{Is:1e-19,N:2.2},'LEDyel':{Is:1e-17,N:2.0},
 };
 const MOS_MODELS={NMOS:{type:'nmos',Vto:0.7,Kp:100e-6,W:10e-6,L:1e-6,lambda:0.02},PMOS:{type:'pmos',Vto:-0.7,Kp:40e-6,W:20e-6,L:1e-6,lambda:0.03}};
 const BJT_MODELS={NPN:{type:'npn',Is:1e-15,BF:200,BR:1},PNP:{type:'pnp',Is:1e-15,BF:100,BR:1}};
-// Manufacturer part catalog (like LTspice's standard.bjt / standard.mos).
-// BJTs use published Gummel-Poon cards; MOSFETs are honest Level-1 fits of the datasheet
-// transfer curve (real power FETs are VDMOS subcircuits, beyond a Level-1 engine).
+// Manufacturer part catalog - Gummel-Poon cards straight from LTspice standard.bjt.
 const BJT_CATALOG={
-  '2N2222' :{type:'npn',Is:14.34e-15,BF:255.9,BR:6.09,VAF:74.03,TF:411e-12,CJE:22.01e-12,CJC:7.31e-12},
-  '2N3904' :{type:'npn',Is:6.734e-15,BF:416.4,BR:0.7371,VAF:74.03,TF:301.2e-12,CJE:4.49e-12,CJC:3.64e-12},
-  'BC547B' :{type:'npn',Is:7.049e-15,BF:374.6,BR:0.7,VAF:62.37,TF:410e-12,CJE:11.5e-12,CJC:5.25e-12},
-  'TIP31C' :{type:'npn',Is:1e-13,BF:75,BR:2,VAF:100,TF:1e-9,CJE:100e-12,CJC:50e-12},
-  '2N3906' :{type:'pnp',Is:1.41e-15,BF:180.7,BR:4.977,VAF:18.7,TF:466.5e-12,CJE:4.97e-12,CJC:9.39e-12},
-  'BC557B' :{type:'pnp',Is:1.02e-15,BF:300,BR:10,VAF:52,TF:612e-12,CJE:13e-12,CJC:9.8e-12},
+  '2N2222A' :{type:'npn',Is:1.434e-14,BF:255.9,BR:6.092,VAF:74.03,TF:4.111e-10,CJE:2.201e-11,CJC:7.306e-12},
+  '2N3904'  :{type:'npn',Is:1e-14,BF:300,BR:4,VAF:100,TF:3.5e-10,CJE:8e-12,CJC:4e-12},
+  '2N4401'  :{type:'npn',Is:2.603e-14,BF:4292,BR:1.01,VAF:90.7,TF:4.665e-10,CJE:2.407e-11,CJC:1.101e-11},
+  '2N5551'  :{type:'npn',Is:2.511e-15,BF:242.6,BR:3.197,VAF:100,TF:5.6e-10,CJE:1.879e-11,CJC:4.883e-12},
+  'BC337-25':{type:'npn',Is:4.13e-14,BF:292.4,BR:23.68,VAF:145.7,TF:5.4e-10,CJE:3.799e-11,CJC:1.355e-11},
+  'BC546B'  :{type:'npn',Is:2.39e-14,BF:294.3,BR:7.946,VAF:63.2,TF:4.39e-10,CJE:1.36e-11,CJC:3.73e-12},
+  'BC547B'  :{type:'npn',Is:2.39e-14,BF:294.3,BR:7.946,VAF:63.2,TF:4.391e-10,CJE:1.358e-11,CJC:3.728e-12},
+  'BC548B'  :{type:'npn',Is:7.049e-15,BF:374.6,BR:1,VAF:62.79,TF:4.102e-10,CJE:1.15e-11,CJC:5.25e-12},
+  'BD139'   :{type:'npn',Is:2.398e-13,BF:244.9,BR:78.11,VAF:98.5,CJE:2.927e-10,CJC:4.883e-11},
+  'TIP31C'  :{type:'npn',Is:1.622e-13,BF:83.6,BR:20.61,VAF:110.5,TF:2.373e-8,CJE:4.77e-10,CJC:7.29e-11},
+  'TIP41C'  :{type:'npn',Is:7.558e-11,BF:260.5,BR:26.05,VAF:100,TF:1e-8,CJE:1.933e-10,CJC:1.097e-10},
+  '2N3906'  :{type:'pnp',Is:1e-14,BF:200,BR:4,VAF:100,TF:3.5e-10,CJE:1e-11,CJC:4.5e-12},
+  '2N4403'  :{type:'pnp',Is:6.506e-16,BF:216.2,BR:3.578,VAF:115.7,TF:6.037e-10,CJE:1.982e-11,CJC:1.476e-11},
+  '2N5401'  :{type:'pnp',Is:2.148e-14,BF:132.1,BR:3.661,VAF:100,TF:6.419e-10,CJE:7.339e-11,CJC:1.763e-11},
+  'BC327-25':{type:'pnp',Is:1.08e-13,BF:385.7,BR:20.57,VAF:31.29,TF:7.359e-10,CJE:5.114e-11,CJC:2.656e-11},
+  'BC556B'  :{type:'pnp',Is:3.83e-14,BF:344.4,BR:14.84,VAF:21.11,TF:5.6e-10,CJE:1.23e-11,CJC:1.08e-11},
+  'BC557B'  :{type:'pnp',Is:3.83e-14,BF:344.4,BR:14.84,VAF:21.11,TF:5.6e-10,CJE:1.23e-11,CJC:1.08e-11},
+  'BC558B'  :{type:'pnp',Is:1.02e-15,BF:306.5,BR:6.48,VAF:52.31,TF:6.116e-10,CJE:3e-11,CJC:9.81e-12},
+  'BD140'   :{type:'pnp',Is:2.954e-13,BF:201.4,BR:23.77,VAF:137,CJE:2.198e-10,CJC:6.829e-11},
+  'TIP32C'  :{type:'pnp',Is:6.776e-13,BF:198.8,BR:25.5,VAF:77.43,TF:2.373e-8,CJE:2.7e-10,CJC:1.07e-10},
+  'TIP42C'  :{type:'pnp',Is:6.619e-14,BF:137.6,BR:5.88,VAF:100,TF:2.321e-8,CJE:3.901e-10,CJC:8.704e-10},
 };
+BJT_CATALOG['2N2222']=BJT_CATALOG['2N2222A'];   // common alias
+// MOSFETs: Vto/Kp/caps taken from the LTspice VDMOS cards, run here as Level-1 fits.
+// Kp is clamped to 60 A/V² - VDMOS cards rely on Rs/Rd terms a Level-1 engine doesn't model,
+// so unclamped transconductance would give unphysical currents. Labeled "Level-1 fit" in the UI.
 const MOS_CATALOG={
-  '2N7000' :{type:'nmos',Vto:2.0,Kp:0.10,W:1e-6,L:1e-6,lambda:0.01,CGS:25e-12,CGD:5e-12},
+  '2N7000' :{type:'nmos',Vto:1.6,Kp:0.17,W:1e-6,L:1e-6,lambda:0.01,CGS:5e-11,CGD:8e-11},
+  '2N7002' :{type:'nmos',Vto:1.6,Kp:0.17,W:1e-6,L:1e-6,lambda:0.01,CGS:5e-11,CGD:8e-11},
+  'BS170'  :{type:'nmos',Vto:1.824,Kp:0.1233,W:1e-6,L:1e-6,lambda:0.01,CGS:2.8e-11,CGD:2e-11},
+  'BSS123' :{type:'nmos',Vto:1.6,Kp:1,W:1e-6,L:1e-6,lambda:0.01,CGS:1e-10,CGD:1e-10},
   'BSS138' :{type:'nmos',Vto:1.4,Kp:0.05,W:1e-6,L:1e-6,lambda:0.012,CGS:28e-12,CGD:8e-12},
-  'IRF540N':{type:'nmos',Vto:3.8,Kp:30,W:1e-6,L:1e-6,lambda:0.003,CGS:1.7e-9,CGD:0.24e-9},
-  'IRFZ44N':{type:'nmos',Vto:3.9,Kp:35,W:1e-6,L:1e-6,lambda:0.003,CGS:1.9e-9,CGD:0.3e-9},
-  'IRF9540':{type:'pmos',Vto:-3.7,Kp:15,W:1e-6,L:1e-6,lambda:0.004,CGS:1.4e-9,CGD:0.5e-9},
+  'IRF540' :{type:'nmos',Vto:3.542,Kp:35.15,W:1e-6,L:1e-6,lambda:0.005,CGS:1.54e-9,CGD:2.7e-9},
+  'IRF540N':{type:'nmos',Vto:3.708,Kp:60,W:1e-6,L:1e-6,lambda:0.005,CGS:1.21e-9,CGD:4e-9},
+  'IRFZ44N':{type:'nmos',Vto:4,Kp:19,W:1e-6,L:1e-6,lambda:0.005,CGS:1.4e-9,CGD:2e-9},
+  'IRF640' :{type:'nmos',Vto:3.869,Kp:7.151,W:1e-6,L:1e-6,lambda:0.005,CGS:1.19e-9,CGD:4e-9},
+  'IRLZ44N':{type:'nmos',Vto:2.13,Kp:60,W:1e-6,L:1e-6,lambda:0.005,CGS:1.57e-9,CGD:3.5e-9},
+  'IRF1404':{type:'nmos',Vto:4,Kp:60,W:1e-6,L:1e-6,lambda:0.005,CGS:4.98e-9,CGD:5.5e-9},
+  'IRF9540':{type:'pmos',Vto:-3.192,Kp:13.97,W:1e-6,L:1e-6,lambda:0.005,CGS:1.27e-9,CGD:2e-9},
+  'IRF9640':{type:'pmos',Vto:-3.5,Kp:8,W:1e-6,L:1e-6,lambda:0.01,CGS:1e-9,CGD:1.5e-9},
+  'BSS84'  :{type:'pmos',Vto:-2.1,Kp:0.2,W:1e-6,L:1e-6,lambda:0.01,CGS:2e-11,CGD:4e-11},
+  'IRF9Z34N':{type:'pmos',Vto:-3.692,Kp:17.25,W:1e-6,L:1e-6,lambda:0.005,CGS:4.87e-10,CGD:1.58e-9},
 };
 const catLookup=v=>{if(!v)return null;const k=String(v).trim().toUpperCase();
   for(const t of[BJT_CATALOG,MOS_CATALOG])for(const n in t)if(n.toUpperCase()===k)return{name:n,model:t[n]};
@@ -984,13 +1018,15 @@ document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;
 /* properties popover */
 function openProps(c,x,y){const P=PARTS[c.type];const el=document.getElementById('props');
   let valField=`<label>Value</label><input id="pv" value="${c.value}">`;
-  const sel=(opts,note)=>`<label>Model${note?` <span style="color:var(--dim);font-weight:400">${note}</span>`:''}</label><select id="pv">${opts.map(o=>`<option ${o===c.value?'selected':''}>${o}</option>`).join('')}</select>`;
-  if(c.type==='D')valField=sel(['1N4148','1N4001','1N4007','1N5819','BAT54']);
+  const sel=(opts,note)=>{const o2=[...new Set([c.value,...opts])].filter(Boolean);   // keep the current value even if exotic
+    return`<label>Model${note?` <span style="color:var(--dim);font-weight:400">${note}</span>`:''}</label><select id="pv">${o2.map(o=>`<option ${o===c.value?'selected':''}>${o}</option>`).join('')}</select>`;};
+  const catOf=(tab,ty)=>Object.keys(tab).filter(k=>tab[k].type===ty).sort();
+  if(c.type==='D')valField=sel(Object.keys(MODELS).filter(k=>!/^LED/.test(k)));
   else if(c.type==='LED')valField=sel(['LEDred','LEDgrn','LEDblu','LEDyel']);
-  else if(c.type==='NPN')valField=sel(['NPN','2N2222','2N3904','BC547B','TIP31C'],'· Gummel-Poon');
-  else if(c.type==='PNP')valField=sel(['PNP','2N3906','BC557B'],'· Gummel-Poon');
-  else if(c.type==='NMOS')valField=sel(['NMOS','2N7000','BSS138','IRF540N','IRFZ44N'],'· Level-1 fit');
-  else if(c.type==='PMOS')valField=sel(['PMOS','IRF9540'],'· Level-1 fit');
+  else if(c.type==='NPN')valField=sel(['NPN',...catOf(BJT_CATALOG,'npn')],'· Gummel-Poon');
+  else if(c.type==='PNP')valField=sel(['PNP',...catOf(BJT_CATALOG,'pnp')],'· Gummel-Poon');
+  else if(c.type==='NMOS')valField=sel(['NMOS',...catOf(MOS_CATALOG,'nmos')],'· Level-1 fit');
+  else if(c.type==='PMOS')valField=sel(['PMOS',...catOf(MOS_CATALOG,'pmos')],'· Level-1 fit');
   el.innerHTML=`<h4>${c.ref||P.label} · ${P.label}</h4>${valField}
     <label>Rotation</label><input id="pr" value="${c.rot}">
     <div class="row"><button class="del" onclick="delComp(${c.uid})">Delete</button><button class="ok" onclick="applyProps(${c.uid})">Apply</button></div>`;

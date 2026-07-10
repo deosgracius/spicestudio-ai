@@ -8,20 +8,22 @@ global.window={addEventListener(){},location:{href:''}};global.localStorage={get
 let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__new=newSheet;global.__place=place;global.__bc=buildCircuit;global.__ps=parseStructured;global.__spice=parseSpice;global.__bands=resBands;global.__cat=BJT_CATALOG;';
 (0,eval)(js);const S=global.__S;let pass=0,fail=0;const chk=(c,m,d)=>{console.log((c?'PASS':'FAIL')+'  '+m+(d?' - '+d:''));c?pass++:fail++;};
 
-// (1) part number on the component drives the engine model
+// (1) part number on the component drives the engine model (values = LTspice standard.bjt cards)
 global.__new();
 const q=global.__place('NPN',5,5,'2N3904');global.__place('GND',5,9);
 const{ckt}=global.__bc(false);
 const qe=ckt.elements.find(e=>e.type==='Q');
-chk(qe&&qe.model.BF===416.4,'NPN valued "2N3904" simulates with the 2N3904 card (BF=416.4)',qe&&qe.model.BF);
+chk(qe&&qe.model.BF===300,'NPN valued "2N3904" simulates with the library card (BF=300)',qe&&qe.model.BF);
 q.value='2N2222';const r2=global.__bc(false);
-chk(r2.ckt.elements.find(e=>e.type==='Q').model.BF===255.9,'switching to 2N2222 switches the card (BF=255.9)');
+chk(r2.ckt.elements.find(e=>e.type==='Q').model.BF===255.9,'"2N2222" aliases the 2N2222A card (BF=255.9)');
+q.value='BD139';const r2b=global.__bc(false);
+chk(r2b.ckt.elements.find(e=>e.type==='Q').model.BF===244.9,'new library part BD139 resolves (BF=244.9)');
 q.value='NPN';const r3=global.__bc(false);
 chk(r3.ckt.elements.find(e=>e.type==='Q').model.BF===200,'generic NPN falls back to the default card');
 
 global.__new();global.__place('NMOS',5,5,'IRF540N');
 const me=global.__bc(false).ckt.elements.find(e=>e.type==='M');
-chk(me&&me.model.Vto===3.8&&me.model.Kp===30,'NMOS valued "IRF540N" gets the Level-1 power-FET fit',me&&('Vto='+me.model.Vto));
+chk(me&&me.model.Vto===3.708&&me.model.Kp===60,'IRF540N uses the VDMOS Vto with Kp clamped to 60',me&&('Vto='+me.model.Vto+' Kp='+me.model.Kp));
 
 // (2) structured block accepts raw part numbers
 const sp=global.__ps('COMPONENTS:\nQ1 = 2N3904, M1 = IRF540N, D1 = 1N4001\nV1 = 5V, Ground = 0V\nNETS:\nV1 -> Q1.Collector\nGround -> Q1.Emitter');
