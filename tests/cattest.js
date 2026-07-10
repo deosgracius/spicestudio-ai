@@ -5,7 +5,7 @@ function mk(){const c=createCanvas(1000,600);c.addEventListener=()=>{};c.getBoun
 const cv={};function el(id){if(id&&/canvas|sch/.test(id)){if(!cv[id])cv[id]=mk();return cv[id];}const e={style:{},dataset:{},classList:{add(){},remove(){},toggle(){},contains:()=>false},addEventListener(){},appendChild(){},removeChild(){},querySelectorAll:()=>[],focus(){},remove(){},clientWidth:1000,clientHeight:500,value:'',textContent:'',getBoundingClientRect:()=>({left:0,top:0,width:1000,height:500}),getContext:()=>mk().getContext('2d')};e.lastChild={remove(){}};e.parentElement={clientWidth:1000,clientHeight:500};Object.defineProperty(e,'innerHTML',{get(){return'';},set(){}});return e;}
 global.document={getElementById:el,createElement:()=>el(''),querySelectorAll:()=>[],addEventListener(){},body:el('')};
 global.window={addEventListener(){},location:{href:''}};global.localStorage={getItem:()=>null,setItem(){}};global.fetch=async()=>({json:async()=>({})});global.alert=()=>{};
-let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__new=newSheet;global.__place=place;global.__bc=buildCircuit;global.__ps=parseStructured;global.__spice=parseSpice;global.__bands=resBands;global.__cat=BJT_CATALOG;global.__LB=LIB_BJT;global.__LD=LIB_DIO;global.__LM=LIB_MOS;global.__look=catLookup;';
+let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__new=newSheet;global.__place=place;global.__bc=buildCircuit;global.__ps=parseStructured;global.__spice=parseSpice;global.__bands=resBands;global.__cat=BJT_CATALOG;global.__LB=LIB_BJT;global.__LD=LIB_DIO;global.__LM=LIB_MOS;global.__LJ=LIB_JFT;global.__look=catLookup;global.__spec=buildFromSpec;';
 (0,eval)(js);const S=global.__S;let pass=0,fail=0;const chk=(c,m,d)=>{console.log((c?'PASS':'FAIL')+'  '+m+(d?' - '+d:''));c?pass++:fail++;};
 
 // (1) part number on the component drives the engine model (values = LTspice standard.bjt cards)
@@ -58,5 +58,18 @@ chk(lm&&lm.model.Vto===-0.55&&lm.model.type==='pmos','SMD P-FET IRLML6402 (full 
 chk(global.__look('1N4148').model.Is===2.52e-9,'curated card still wins over the lib duplicate for 1N4148');
 const sp3=global.__ps('COMPONENTS:\nQ1 = MMBT3904\nV1 = 5V, Ground = 0V\nNETS:\nV1 -> Q1.Collector\nGround -> Q1.Emitter');
 chk(sp3.parts.find(x=>x.ref==='Q1').value==='MMBT3904','structured block accepts any full-lib part number');
+
+// (6) ALL of it: JFET library + zener breakdown actually working
+const runSp=t=>{global.__spec(global.__spice(t));return n=>S.sim&&S.sim.dc?S.sim.dc[n]:undefined;};
+chk(Object.keys(global.__LJ).length>=1000,'full JFET library embedded',Object.keys(global.__LJ).length+' parts');
+chk(Object.keys(global.__LD).length>=2500,'ALL diode cards embedded (none skipped)',Object.keys(global.__LD).length+' parts');
+const j=global.__look('2N5457');
+chk(j&&j.kind==='j'&&j.model.Vto===-1.372&&Math.abs(j.model.Kp-2.25e-3)<1e-5,'2N5457 JFET resolves (Vto=-1.372, Kp=2·Beta)',j&&('Vto='+j.model.Vto));
+const vJ=runSp('V1 vin 0 10\nRD vin d 1k\nJ1 d 0 0 2N5457\n.op');
+chk(vJ('d')>6&&vJ('d')<9.5,'JFET conducts at Vgs=0 (depletion mode) - drain pulled down',vJ('d')&&vJ('d').toFixed(2)+'V');
+const vZ=runSp('V1 in 0 10\nR1 in k 1k\nD1 0 k BZX84C5V1\n.op');
+chk(vZ('k')>4.7&&vZ('k')<5.6,'ZENER BREAKDOWN: BZX84C5V1 reverse-clamps near 5.1V',vZ('k')&&vZ('k').toFixed(2)+'V');
+const vF=runSp('V1 in 0 5\nR1 in a 1k\nD1 a 0 BZX84C5V1\n.op');
+chk(vF('a')>0.5&&vF('a')<1.1,'same zener still conducts normally forward',vF('a')&&vF('a').toFixed(2)+'V');
 
 console.log('\n'+pass+' passed, '+fail+' failed');process.exit(fail?1:0);

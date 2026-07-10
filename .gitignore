@@ -6,3 +6,5 @@ tests/app_extract.js
 *.bak
 spicestudio_part*.txt
 .DS_Store
+tools/standard.*
+tools/lib_full.js

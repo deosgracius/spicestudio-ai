@@ -1,5 +1,6 @@
-// Extract ALL usable cards from the LTspice standard libraries into compact JS,
-// with sanity filters for what a Level-1/Gummel-Poon engine can honestly run.
+// Regenerates the embedded component library (LIB_BJT/LIB_DIO/LIB_MOS/LIB_JFT in
+// spicestudio-ai.html) from the LTspice standard libraries. See README.md.
+// v2: JFETs, zener BV/IBV, SPICE-default fill-ins for absent params, AKO alias resolution.
 const fs=require('fs'),path=require('path');
 const DIR=__dirname;
 const su={f:1e-15,p:1e-12,n:1e-9,u:1e-6,'µ':1e-6,m:1e-3,k:1e3,meg:1e6,g:1e9,t:1e12};
@@ -9,49 +10,66 @@ function loadCards(file){
   const raw=fs.readFileSync(path.join(DIR,file),'latin1').split(/\r?\n/);
   const lines=[];raw.forEach(l=>{if(/^\s*\+/.test(l)&&lines.length)lines[lines.length-1]+=' '+l.replace(/^\s*\+/,'');else lines.push(l);});
   const cards={};
-  lines.forEach(l=>{const m=l.match(/^\s*\.model\s+(\S+)\s+(\w+)\s*\(?([^)]*)/i);if(!m)return;
+  lines.forEach(l=>{const m=l.match(/^\s*\.model\s+(\S+)\s+(\S+)\s*\(?([^)]*)/i);if(!m)return;
+    let type=m[2].toUpperCase(),ako=null;
+    const am=type.match(/^AKO:(\S+)/i);if(am){ako=am[1];const tm=l.match(/^\s*\.model\s+\S+\s+\S+\s+(\w+)/i);type=tm?tm[1].toUpperCase():'';}
     const params={};(m[3]||'').split(/[\s,]+/).forEach(kv=>{const p=kv.split('=');if(p[0]&&p[1]!==undefined)params[p[0].toLowerCase()]=p[1];});
     if(/\bpchan\b/i.test(m[3]||''))params.pchan='1';
-    cards[m[1]]={type:m[2].toUpperCase(),params};});
+    cards[m[1]]={type,ako,params};});
+  // resolve AKO aliases (inherit target's type+params, apply local overrides)
+  for(const[n,c]of Object.entries(cards)){if(!c.ako)continue;const t=cards[c.ako];if(!t)continue;
+    c.type=c.type||t.type;c.params=Object.assign({},t.params,c.params);}
   return cards;
 }
+const clean=n=>/^[^'"\\\s]+$/.test(n)&&n.length<=24;
 const fmt=v=>{if(v===undefined||v===null||!isFinite(v))return null;if(v===0)return'0';
   const a=Math.abs(v);if(a>=0.01&&a<1e5)return String(+v.toPrecision(4));
   return(+v.toPrecision(4)).toExponential().replace(/e([+-])(\d)$/,'e$1$2');};
-const clean=n=>/^[\w.+-]+$/.test(n)&&n.length<=16;   // sane part-number names only
 
-// BJTs: NPN/PNP Gummel-Poon cards with at least Is+BF
+// BJTs: SPICE defaults Is=1e-16, BF=100 when absent
 const bjt=loadCards('standard.bjt');let outB={},nB=0,skB=0;
 for(const[n,c]of Object.entries(bjt)){if(!clean(n)||(c.type!=='NPN'&&c.type!=='PNP')){skB++;continue;}
-  const g=k=>pv(c.params[k]);const Is=g('is'),BF=g('bf');
-  if(!Is||!BF||BF<1||BF>20000){skB++;continue;}
+  const g=k=>pv(c.params[k]);const Is=g('is')??1e-16,BF=g('bf')??100;
+  if(BF<=0||BF>50000){skB++;continue;}
   const e={t:c.type==='PNP'?1:0,Is:fmt(Is),BF:fmt(BF)};
   const br=g('br'),vaf=g('vaf'),tf=g('tf'),cje=g('cje'),cjc=g('cjc');
   if(br)e.BR=fmt(br);if(vaf)e.VAF=fmt(vaf);if(tf)e.TF=fmt(tf);if(cje)e.CJE=fmt(cje);if(cjc)e.CJC=fmt(cjc);
   outB[n]=e;nB++;}
-// Diodes: D cards with Is; skip pure zeners is impossible to detect reliably - keep, engine runs them forward-only
-const dio=loadCards('standard.dio');let outD={},nD=0,skD=0;
+// Diodes: SPICE default Is=1e-14; keep zener breakdown BV/IBV so zeners actually clamp
+const dio=loadCards('standard.dio');let outD={},nD=0,skD=0,nZ=0;
 for(const[n,c]of Object.entries(dio)){if(!clean(n)||c.type!=='D'){skD++;continue;}
-  const g=k=>pv(c.params[k]);const Is=g('is');if(!Is||Is<=0){skD++;continue;}
+  const g=k=>pv(c.params[k]);const Is=g('is')??1e-14;if(Is<=0){skD++;continue;}
   const e={Is:fmt(Is),N:fmt(g('n')??1)};
-  const cjo=g('cjo'),tt=g('tt');if(cjo)e.CJO=fmt(cjo);if(tt)e.TT=fmt(tt);
+  const cjo=g('cjo'),tt=g('tt'),bv=g('bv'),ibv=g('ibv');
+  if(cjo)e.CJO=fmt(cjo);if(tt)e.TT=fmt(tt);
+  if(bv&&bv<1e3){e.BV=fmt(bv);if(ibv)e.IB=fmt(ibv);nZ++;}
   outD[n]=e;nD++;}
-// MOSFETs: VDMOS/NMOS/PMOS with Vto+Kp; Kp clamped (Level-1 has no Rs/Rd)
+// MOSFETs: need Vto; Kp defaults to the VDMOS default (1) then clamps to 60 (Level-1 has no Rs/Rd)
 const mos=loadCards('standard.mos');let outM={},nM=0,skM=0;
 for(const[n,c]of Object.entries(mos)){if(!clean(n)||!/^(VDMOS|NMOS|PMOS)$/.test(c.type)){skM++;continue;}
-  const g=k=>pv(c.params[k]);const Vto=g('vto'),Kp=g('kp');
-  if(Vto===undefined||!Kp||Kp<=0){skM++;continue;}
-  const pch=c.type==='PMOS'||c.params.pchan!==undefined||Vto<0;
-  const e={t:pch?1:0,Vto:fmt(pch?-Math.abs(Vto):Math.abs(Vto)),Kp:fmt(Math.min(Kp,60))};
+  const g=k=>pv(c.params[k]);const Vto=g('vto'),Kp=g('kp')??(c.type==='VDMOS'?1:2e-5);
+  if(Vto===undefined||Kp<=0){skM++;continue;}
+  const isP=c.type==='PMOS'||c.params.pchan!==undefined;
+  const e={t:isP?1:0,Vto:fmt(isP?-Math.abs(Vto):Math.abs(Vto)),Kp:fmt(Math.min(Kp,60))};
   const cgs=g('cgs'),cgd=g('cgdmax')??g('cgdo');if(cgs)e.CGS=fmt(cgs);if(cgd)e.CGD=fmt(cgd);
   outM[n]=e;nM++;}
+// JFETs: Shichman-Hodges quadratic = MOSFET Level-1 with Kp=2*Beta. SPICE defaults Vto=-2, Beta=1e-4.
+const jft=loadCards('standard.jft');let outJ={},nJ=0,skJ=0;
+for(const[n,c]of Object.entries(jft)){if(!clean(n)||(c.type!=='NJF'&&c.type!=='PJF')){skJ++;continue;}
+  const g=k=>pv(c.params[k]);const Vto=g('vto')??-2,B=g('beta')??1e-4;
+  if(B<=0){skJ++;continue;}
+  const e={t:c.type==='PJF'?1:0,Vto:fmt(Vto),B:fmt(B)};
+  const l=g('lambda'),cgs=g('cgs'),cgd=g('cgd');
+  if(l)e.l=fmt(l);if(cgs)e.CGS=fmt(cgs);if(cgd)e.CGD=fmt(cgd);
+  outJ[n]=e;nJ++;}
 
-const emit=(o)=>'{'+Object.entries(o).map(([n,e])=>`'${n}':{${Object.entries(e).map(([k,v])=>k+':'+v).join(',')}}`).join(',\n')+'}';
-const js=`// FULL LTspice standard-library import (github.com/HenniePeters/LTSpice), generated - do not hand-edit
+const emit=o=>'{'+Object.entries(o).map(([n,e])=>`'${n}':{${Object.entries(e).map(([k,v])=>k+':'+v).join(',')}}`).join(',\n')+'}';
+const js=`// FULL LTspice standard-library import (github.com/HenniePeters/LTSpice), generated by tools/extract_all.js - do not hand-edit
 const LIB_BJT=${emit(outB)};
 const LIB_DIO=${emit(outD)};
 const LIB_MOS=${emit(outM)};
+const LIB_JFT=${emit(outJ)};
 `;
 fs.writeFileSync(path.join(DIR,'lib_full.js'),js);
-console.log(`BJT: ${nB} kept / ${skB} skipped · DIO: ${nD} kept / ${skD} skipped · MOS: ${nM} kept / ${skM} skipped`);
-console.log('generated lib_full.js:',(fs.statSync(path.join(DIR,'lib_full.js')).size/1024).toFixed(0)+' KB');
+console.log(`BJT ${nB} kept/${skB} skipped · DIO ${nD} kept/${skD} skipped (${nZ} with breakdown) · MOS ${nM} kept/${skM} skipped · JFT ${nJ} kept/${skJ} skipped`);
+console.log('lib_full.js:',(fs.statSync(path.join(DIR,'lib_full.js')).size/1024).toFixed(0)+' KB');
