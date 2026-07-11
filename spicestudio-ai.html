@@ -97,6 +97,7 @@ button{font-family:inherit}
 .leg{display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer;opacity:.85;transition:opacity .1s;color:var(--muted)}
 .leg:hover{opacity:1;color:var(--text)}
 .leg .sw{width:14px;height:3px;border-radius:2px}
+.leg .ms{color:var(--dim);margin-left:5px}
 #wave-canvas{flex:1;width:100%}
 
 /* Right: AI */
@@ -7435,10 +7436,10 @@ const PARTS={
   PMOS:{cat:'Transistors',label:'P-MOSFET',def:'PMOS',pins:3,draw:'pmos',color:'#dcdcaa',footprint:'SOT-23',
      pinDefs:[{name:'D',dx:2,dy:2},{name:'G',dx:-2,dy:0},{name:'S',dx:2,dy:-2}],
      net:(c,net,ckt)=>ckt.add({type:'M',nodes:[net(0),net(1),net(2)],model:c.spiceModel||libModel(c.value,'m')||MOS_MODELS.PMOS})},
-  NJF:{cat:'Transistors',label:'N-JFET',def:'NJF',pins:3,draw:'nmos',color:'#9ad0a0',footprint:'TO-92',
+  NJF:{cat:'Transistors',label:'N-JFET',def:'NJF',pins:3,draw:'njf',color:'#9ad0a0',footprint:'TO-92',
      pinDefs:[{name:'D',dx:2,dy:-2},{name:'G',dx:-2,dy:0},{name:'S',dx:2,dy:2}],
      net:(c,net,ckt)=>ckt.add({type:'M',nodes:[net(0),net(1),net(2)],model:c.spiceModel||libModel(c.value,'j')||JF_MODELS.NJF})},
-  PJF:{cat:'Transistors',label:'P-JFET',def:'PJF',pins:3,draw:'pmos',color:'#9ad0a0',footprint:'TO-92',
+  PJF:{cat:'Transistors',label:'P-JFET',def:'PJF',pins:3,draw:'pjf',color:'#9ad0a0',footprint:'TO-92',
      pinDefs:[{name:'D',dx:2,dy:2},{name:'G',dx:-2,dy:0},{name:'S',dx:2,dy:-2}],
      net:(c,net,ckt)=>ckt.add({type:'M',nodes:[net(0),net(1),net(2)],model:c.spiceModel||libModel(c.value,'j')||JF_MODELS.PJF})},
   NPN:{cat:'Transistors',label:'NPN BJT',def:'NPN',pins:3,draw:'npn',color:'#f0a868',footprint:'TO-92',
@@ -7510,7 +7511,7 @@ let uidC=0;
 const canvas=document.getElementById('sch');const ctx=canvas.getContext('2d');
 const wcanvas=document.getElementById('wave-canvas');const wctx=wcanvas.getContext('2d');
 
-function nextRef(type){const pre={R:'R',C:'C',L:'L',D:'D',DZ:'D',LED:'LED',V:'V',VAC:'V',VPULSE:'V',I:'I',NJF:'J',PJF:'J',VCC:'TP',V33:'TP',V12:'TP',GND:'TP',LM358:'U'}[type]||'U';
+function nextRef(type){const pre={R:'R',C:'C',L:'L',D:'D',DZ:'D',LED:'LED',V:'V',VAC:'V',VPULSE:'V',I:'I',NPN:'Q',PNP:'Q',NMOS:'Q',PMOS:'Q',NJF:'J',PJF:'J',VCC:'TP',V33:'TP',V12:'TP',GND:'TP',LM358:'U'}[type]||'U';
   S.refCount[pre]=(S.refCount[pre]||0)+1;return pre+S.refCount[pre];}
 
 function addComp(type,gx,gy){const P=PARTS[type];const c={uid:++uidC,type,x:gx,y:gy,rot:0,value:P.def,ref:nextRef(type)};S.comps.push(c);draw();updateStatus();return c;}
@@ -7678,6 +7679,12 @@ function drawSym(kind,L,color,sel){ctx.beginPath();
     ctx.beginPath();[-3,-1,1,3].forEach(k=>{line(-hw,k*L,-3*L,k*L);line(hw,k*L,3*L,k*L);});ctx.stroke();return;}
   if(kind==='nmos'||kind==='pmos'){line(-2*L,0,-0.7*L,0);line(-0.7*L,-0.9*L,-0.7*L,0.9*L);ctx.stroke();
     ctx.beginPath();line(-0.35*L,-0.9*L,-0.35*L,0.9*L);line(-0.35*L,-0.55*L,2*L,-2*L);line(-0.35*L,0.55*L,2*L,2*L);ctx.stroke();return;}
+  if(kind==='njf'||kind==='pjf'){line(-2*L,0,-0.55*L,0);line(-0.55*L,-0.9*L,-0.55*L,0.9*L);   // gate lead + channel bar
+    line(-0.55*L,-0.55*L,2*L,-2*L);line(-0.55*L,0.55*L,2*L,2*L);ctx.stroke();                 // drain/source leads
+    ctx.beginPath();                                                                          // gate arrow: into channel = N-JFET, out = P-JFET
+    if(kind==='njf'){ctx.moveTo(-1.15*L,-0.22*L);ctx.lineTo(-0.62*L,0);ctx.lineTo(-1.15*L,0.22*L);}
+    else{ctx.moveTo(-0.62*L,-0.22*L);ctx.lineTo(-1.15*L,0);ctx.lineTo(-0.62*L,0.22*L);}
+    ctx.closePath();ctx.fill();return;}
   if(kind==='npn'||kind==='pnp'){line(-2*L,0,-0.5*L,0);line(-0.5*L,-0.9*L,-0.5*L,0.9*L);ctx.stroke();
     ctx.beginPath();line(-0.5*L,-0.45*L,2*L,-2*L);line(-0.5*L,0.45*L,2*L,2*L);ctx.stroke();return;}
   if(kind==='opamp'){ctx.moveTo(-2.4*L,-2.6*L);ctx.lineTo(-2.4*L,2.6*L);ctx.lineTo(2.6*L,0);ctx.closePath();ctx.stroke();
@@ -7860,8 +7867,11 @@ function openProps(c,x,y){const P=PARTS[c.type];const el=document.getElementById
     <div class="row"><button class="del" onclick="delComp(${c.uid})">Delete</button><button class="ok" onclick="applyProps(${c.uid})">Apply</button></div>`;
   el.style.left=Math.min(x,canvas.width-240)+'px';el.style.top=Math.min(y,canvas.height-160)+'px';el.style.display='block';
   setTimeout(()=>document.getElementById('pv').focus(),0);}
-function applyProps(uid){const c=S.comps.find(x=>x.uid===uid);if(!c)return;c.value=document.getElementById('pv').value;
-  if(catLookup(c.value)||['NPN','PNP','NMOS','PMOS','NJF','PJF'].includes(c.value))delete c.spiceModel;   // picked from the catalog: the part number now drives the model
+function applyProps(uid){const c=S.comps.find(x=>x.uid===uid);if(!c)return;c.value=document.getElementById('pv').value.trim();
+  const GEN=['NPN','PNP','NMOS','PMOS','NJF','PJF'];
+  if(catLookup(c.value)||GEN.includes(c.value))delete c.spiceModel;   // picked from the catalog: the part number now drives the model
+  else if(GEN.includes(c.type)||c.type==='D')                          // typed something the library doesn't know: warn, don't silently fake it
+    aiPush('sys',`⚠ <b>${esc(c.value)}</b> is not in the component library - ${c.ref} will simulate with the generic ${PARTS[c.type].label} model.`);
   c.rot=(+document.getElementById('pr').value||0)%360;hideProps();invalidate();draw();}
 function delComp(uid){S.comps=S.comps.filter(x=>x.uid!==uid);S.sel=null;hideProps();invalidate();draw();}
 function hideProps(){document.getElementById('props').style.display='none';}
@@ -7898,8 +7908,19 @@ function drawWave(){const W=wcanvas.width,H=wcanvas.height;wctx.clearRect(0,0,W,
   const legend=document.getElementById('wave-legend');legend.innerHTML='';
   const probed=(S.probes||[]).map(p=>p.net);
   const colFor=(nm,i)=>{const pi=probed.indexOf(nm);return PLOT_COLORS[((pi>=0?pi:i))%PLOT_COLORS.length];};
-  const legTag=(col,nm,i)=>`<div class="leg" ${probed.length?`onclick="removeProbe('${nm}')" title="remove probe"`:''}><span class="sw" style="background:${col}"></span>${nm}${i}</div>`;
+  const legTag=(col,nm,i,ms)=>`<div class="leg" ${probed.length?`onclick="removeProbe('${nm}')" title="remove probe"`:''}><span class="sw" style="background:${col}"></span>${nm}${i}${ms?`<span class="ms">${ms}</span>`:''}</div>`;
   const pick=all=>{if(!probed.length)return all;const p=probed.filter(n=>all.includes(n));return p.length?p:all;};
+  // scope measurements: Vpp + frequency (mean-crossing) per trace, or the DC level for flat traces
+  const meas=(arr,times)=>{let mn=Infinity,mx=-Infinity,sum=0;arr.forEach(v=>{if(v<mn)mn=v;if(v>mx)mx=v;sum+=v;});
+    const mean=sum/arr.length,vpp=mx-mn;
+    if(vpp<1e-6)return`${fmtEng(mean)}V dc`;
+    let cross=0,firstT=null,lastT=null;
+    for(let k=1;k<arr.length;k++)if(arr[k-1]<mean&&arr[k]>=mean){cross++;lastT=times[k];if(firstT===null)firstT=times[k];}
+    const f=(cross>=2&&lastT>firstT)?(cross-1)/(lastT-firstT):null;
+    return`Vpp ${fmtEng(vpp)}V${f?` · ${fmtEng(f)}Hz`:''}`;};
+  const acMeas=(cxa,fs)=>{let mx=0,mi=0;cxa.forEach((c2,k)=>{const m=cabs(c2);if(m>mx){mx=m;mi=k;}});
+    if(mx<=0)return'';for(let k=mi;k<cxa.length;k++)if(cabs(cxa[k])<=mx*0.7071)return`−3dB @ ${fmtEng(fs[k])}Hz`;
+    return'';};
   if(S.waveView==='tran'&&S.sim&&S.sim.trace){
     const nets=pick(distinctNets());const times=S.sim.times;const tMax=times[times.length-1]||1;
     let vMin=1e9,vMax=-1e9;nets.forEach(nm=>S.sim.trace[nm].forEach(v=>{vMin=Math.min(vMin,v);vMax=Math.max(vMax,v);}));
@@ -7907,14 +7928,14 @@ function drawWave(){const W=wcanvas.width,H=wcanvas.height;wctx.clearRect(0,0,W,
     gridY(vMin,vMax,PAD,pw,ph,'V');gridX(0,tMax,PAD,pw,ph,'s');
     nets.forEach((nm,i)=>{const col=colFor(nm,i);wctx.strokeStyle=col;wctx.lineWidth=1.8;wctx.beginPath();
       S.sim.trace[nm].forEach((v,j)=>{const x=PAD.l+pw*times[j]/tMax,y=PAD.t+ph*(1-(v-vMin)/(vMax-vMin));j?wctx.lineTo(x,y):wctx.moveTo(x,y);});wctx.stroke();
-      legend.innerHTML+=legTag(col,nm,'');});
+      legend.innerHTML+=legTag(col,nm,'',nets.length<=4?meas(S.sim.trace[nm],times):'');});
   }else if(S.waveView==='ac'&&S.ac){
     const nets=pick(Object.keys(S.ac.out));const fs=S.ac.freqs;const lf0=Math.log10(fs[0]),lf1=Math.log10(fs[fs.length-1]);
     let mMin=1e9,mMax=-1e9;nets.forEach(nm=>S.ac.out[nm].forEach(c=>{const db=20*Math.log10(cabs(c)+1e-12);if(isFinite(db)){mMin=Math.min(mMin,db);mMax=Math.max(mMax,db);}}));
     if(!isFinite(mMin)){mMin=-60;mMax=6;}gridY(mMin,mMax,PAD,pw,ph,'dB');gridXlog(fs[0],fs[fs.length-1],PAD,pw,ph);
     nets.forEach((nm,i)=>{const col=colFor(nm,i);wctx.strokeStyle=col;wctx.lineWidth=1.8;wctx.beginPath();
       S.ac.out[nm].forEach((c,j)=>{const db=20*Math.log10(cabs(c)+1e-12);const x=PAD.l+pw*(Math.log10(fs[j])-lf0)/(lf1-lf0),y=PAD.t+ph*(1-(db-mMin)/(mMax-mMin));j?wctx.lineTo(x,y):wctx.moveTo(x,y);});wctx.stroke();
-      legend.innerHTML+=legTag(col,nm,' (dB)');});
+      legend.innerHTML+=legTag(col,nm,' (dB)',nets.length<=3?acMeas(S.ac.out[nm],fs):'');});
   }else{wctx.fillStyle='#5d6570';wctx.font='12px Consolas,monospace';wctx.textAlign='center';
     wctx.fillText('No traces yet',W/2,H/2-8);
     wctx.fillStyle='#3d434d';wctx.fillText('Run Transient or AC Sweep, then probe nodes with the ◎ tool',W/2,H/2+12);}
@@ -8470,6 +8491,7 @@ function miniSvg(kind,color){const c=color;
   if(kind==='ic')return`<svg width="30" height="16"><rect x="9" y="2" width="12" height="12" rx="1" fill="none" stroke="${c}" stroke-width="1.5"/><circle cx="15" cy="4" r="1.3" fill="${c}"/></svg>`;
   if(kind==='nmos'||kind==='pmos')return`<svg width="30" height="16"><line x1="2" y1="8" x2="10" y2="8" stroke="${c}" stroke-width="1.4"/><line x1="10" y1="3" x2="10" y2="13" stroke="${c}" stroke-width="1.4"/><line x1="13" y1="3" x2="13" y2="13" stroke="${c}" stroke-width="1.4"/><line x1="13" y1="5" x2="24" y2="3" stroke="${c}" stroke-width="1.2"/><line x1="13" y1="11" x2="24" y2="13" stroke="${c}" stroke-width="1.2"/></svg>`;
   if(kind==='npn'||kind==='pnp')return`<svg width="30" height="16"><line x1="2" y1="8" x2="11" y2="8" stroke="${c}" stroke-width="1.4"/><line x1="11" y1="2" x2="11" y2="14" stroke="${c}" stroke-width="1.6"/><line x1="11" y1="5" x2="24" y2="2" stroke="${c}" stroke-width="1.2"/><line x1="11" y1="11" x2="24" y2="14" stroke="${c}" stroke-width="1.2"/></svg>`;
+  if(kind==='njf'||kind==='pjf')return`<svg width="30" height="16"><line x1="2" y1="8" x2="11" y2="8" stroke="${c}" stroke-width="1.4"/><line x1="11" y1="2" x2="11" y2="14" stroke="${c}" stroke-width="1.6"/><line x1="11" y1="4" x2="24" y2="2" stroke="${c}" stroke-width="1.2"/><line x1="11" y1="12" x2="24" y2="14" stroke="${c}" stroke-width="1.2"/><polygon points="${kind==='njf'?'5,5.5 10,8 5,10.5':'11,5.5 6,8 11,10.5'}" fill="${c}"/></svg>`;
   if(kind==='opamp')return`<svg width="30" height="16"><polygon points="7,2 7,14 23,8" fill="none" stroke="${c}" stroke-width="1.4"/><text x="9.5" y="6.5" font-size="5" fill="${c}">+</text><text x="9.5" y="13" font-size="5" fill="${c}">-</text></svg>`;
   if(kind==='vcc')return`<svg width="30" height="16"><line x1="15" y1="16" x2="15" y2="8" stroke="${c}" stroke-width="1.5"/><polygon points="15,1 9,9 21,9" fill="${c}" opacity="0.8"/></svg>`;
   if(kind==='gnd')return`<svg width="30" height="16"><line x1="15" y1="0" x2="15" y2="7" stroke="${c}" stroke-width="1.5"/><line x1="7" y1="7" x2="23" y2="7" stroke="${c}" stroke-width="2"/><line x1="10" y1="10" x2="20" y2="10" stroke="${c}" stroke-width="1.5"/><line x1="13" y1="13" x2="17" y2="13" stroke="${c}" stroke-width="1.5"/></svg>`;
