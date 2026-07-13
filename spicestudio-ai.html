@@ -72,6 +72,7 @@ button{font-family:inherit}
 .pal-item svg{flex-shrink:0;opacity:.9}
 .pal-item .nm{font-size:12px;flex:1;font-weight:450;color:var(--text)}
 .pal-item .vl{font-size:10.5px;color:var(--dim);font-family:var(--mono)}
+.pal-hint{font-size:11px;color:var(--dim);padding:4px 8px;line-height:1.5}
 
 /* Center */
 #center{flex:1;display:flex;flex-direction:column;min-width:0}
@@ -242,7 +243,7 @@ button{font-family:inherit}
   <div id="body">
     <!-- Palette -->
     <div id="palette">
-      <input class="pal-search" placeholder="Search parts…" oninput="filterPalette(this.value)">
+      <input class="pal-search" placeholder="Search parts or any part number…" oninput="filterPalette(this.value)">
       <div class="pal-scroll" id="pal-scroll"></div>
     </div>
 
@@ -7419,6 +7420,12 @@ const catLookup=v=>{if(!v)return null;if(!_catIdx)_buildCatIdx();
   return{name:e.name,model:_mat(e),kind:e.kind,diode:e.kind==='d'};};
 // model for a schematic part's value, constrained to the part's device class
 function libModel(v,kind){const c=catLookup(v);return c&&c.kind===kind?c.model:null;}
+// which schematic part type a library part number places as (D/LED/NPN/PNP/NMOS/PMOS/NJF/PJF)
+function libClassOf(name){const c=catLookup(name);if(!c)return null;
+  if(c.kind==='d')return /^led/i.test(c.name)?'LED':'D';
+  if(c.kind==='q')return c.model.type==='pnp'?'PNP':'NPN';
+  if(c.kind==='j')return c.model.type==='pmos'?'PJF':'NJF';
+  return c.model.type==='pmos'?'PMOS':'NMOS';}
 const JF_MODELS={NJF:{type:'nmos',Vto:-2,Kp:2e-4,W:1e-6,L:1e-6,lambda:0.002},PJF:{type:'pmos',Vto:2,Kp:2e-4,W:1e-6,L:1e-6,lambda:0.002}};
 // Part templates. netlist(comp, netOf(pinIndex)) -> pushes elements onto a Circuit
 const PARTS={
@@ -7702,7 +7709,9 @@ function drawNodeLabels(){const V=S.sim.dc||S.sim.finalV;if(!V)return;const done
    ============================================================================ */
 canvas.addEventListener('dragover',e=>e.preventDefault());
 canvas.addEventListener('drop',e=>{e.preventDefault();const type=e.dataTransfer.getData('part');if(!type)return;
-  const r=canvas.getBoundingClientRect();const[gx,gy]=toGrid(e.clientX-r.left,e.clientY-r.top);const c=addComp(type,gx,gy);S.sel=c;draw();});
+  const r=canvas.getBoundingClientRect();const[gx,gy]=toGrid(e.clientX-r.left,e.clientY-r.top);const c=addComp(type,gx,gy);
+  const val=e.dataTransfer.getData('value');if(val)c.value=val;   // dragged from the library: part number rides along
+  S.sel=c;draw();});
 
 canvas.addEventListener('mousedown',e=>{const r=canvas.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;S.mouse={x:sx,y:sy};
   const[gx,gy]=toGrid(sx,sy);
@@ -8480,8 +8489,30 @@ function buildPalette(){const el=document.getElementById('pal-scroll');const cat
       it.innerHTML=`${miniSvg(P.draw,P.color)}<span class="nm">${P.label}</span><span class="vl">${P.def||''}</span>`;
       it.addEventListener('dragstart',e=>e.dataTransfer.setData('part',type));
       it.addEventListener('dblclick',()=>{const c=addComp(type,randG(),randG());S.sel=c;draw();});
-      cd.appendChild(it);});el.appendChild(cd);});}
-function filterPalette(q){q=q.toLowerCase();document.querySelectorAll('.pal-item').forEach(it=>{const P=PARTS[it.dataset.type];it.style.display=(P.label.toLowerCase().includes(q)||it.dataset.type.toLowerCase().includes(q))?'':'none';});}
+      cd.appendChild(it);});el.appendChild(cd);});
+  // the full component library lives under the search box - discoverable, not hidden in a popover
+  const total=Object.keys(LIB_BJT).length+Object.keys(LIB_DIO).length+Object.keys(LIB_MOS).length+Object.keys(LIB_JFT).length;
+  const lw=document.createElement('div');lw.className='pal-cat';
+  lw.innerHTML=`<div class="pal-cat-h">Library · ${total.toLocaleString()} parts</div><div id="pal-lib"></div>`;
+  el.appendChild(lw);libHint();}
+function libHint(){const box=document.getElementById('pal-lib');
+  if(box)box.innerHTML='<div class="pal-hint">Search any part number - 2N3904, BZX84C5V1, IRF540N, 2N5457… then drag it onto the sheet.</div>';}
+function filterPalette(q){q=q.trim();const ql=q.toLowerCase();
+  document.querySelectorAll('.pal-item').forEach(it=>{const P=PARTS[it.dataset.type];if(!P)return;
+    it.style.display=(P.label.toLowerCase().includes(ql)||it.dataset.type.toLowerCase().includes(ql))?'':'none';});
+  const box=document.getElementById('pal-lib');if(!box)return;
+  if(ql.length<2){libHint();return;}
+  if(!_catIdx)_buildCatIdx();
+  const qq=q.toUpperCase(),hits=[];
+  for(const[k,e]of _catIdx){if(k.includes(qq)){hits.push(e);if(hits.length>=30)break;}}
+  if(!hits.length){box.innerHTML=`<div class="pal-hint">No library part matches "${esc(q)}"</div>`;return;}
+  box.innerHTML='';
+  hits.forEach(e=>{const ty=libClassOf(e.name);if(!ty||!PARTS[ty])return;const P=PARTS[ty];
+    const it=document.createElement('div');it.className='pal-item';it.draggable=true;it.dataset.type=ty;it.dataset.value=e.name;
+    it.innerHTML=`${miniSvg(P.draw,P.color)}<span class="nm">${e.name}</span><span class="vl">${P.label}</span>`;
+    it.addEventListener('dragstart',ev=>{ev.dataTransfer.setData('part',ty);ev.dataTransfer.setData('value',e.name);});
+    it.addEventListener('dblclick',()=>{const c=addComp(ty,randG(),randG());c.value=e.name;S.sel=c;invalidate();draw();});
+    box.appendChild(it);});}
 function miniSvg(kind,color){const c=color;
   if(kind==='res')return`<svg width="30" height="16"><line x1="0" y1="8" x2="6" y2="8" stroke="${c}" stroke-width="1.5"/><rect x="6" y="4" width="18" height="8" fill="none" stroke="${c}" stroke-width="1.5"/><line x1="24" y1="8" x2="30" y2="8" stroke="${c}" stroke-width="1.5"/></svg>`;
   if(kind==='cap')return`<svg width="30" height="16"><line x1="0" y1="8" x2="12" y2="8" stroke="${c}" stroke-width="1.5"/><line x1="12" y1="2" x2="12" y2="14" stroke="${c}" stroke-width="2"/><line x1="18" y1="2" x2="18" y2="14" stroke="${c}" stroke-width="2"/><line x1="18" y1="8" x2="30" y2="8" stroke="${c}" stroke-width="1.5"/></svg>`;

@@ -5,7 +5,7 @@ function mk(){const c=createCanvas(1000,600);c.addEventListener=()=>{};c.getBoun
 const cv={};function el(id){if(id&&/canvas|sch/.test(id)){if(!cv[id])cv[id]=mk();return cv[id];}const e={style:{},dataset:{},classList:{add(){},remove(){},toggle(){},contains:()=>false},addEventListener(){},appendChild(){},removeChild(){},querySelectorAll:()=>[],focus(){},remove(){},clientWidth:1000,clientHeight:500,value:'',textContent:'',getBoundingClientRect:()=>({left:0,top:0,width:1000,height:500}),getContext:()=>mk().getContext('2d')};e.lastChild={remove(){}};e.parentElement={clientWidth:1000,clientHeight:500};Object.defineProperty(e,'innerHTML',{get(){return'';},set(){}});return e;}
 global.document={getElementById:el,createElement:()=>el(''),querySelectorAll:()=>[],addEventListener(){},body:el('')};
 global.window={addEventListener(){},location:{href:''}};global.localStorage={getItem:()=>null,setItem(){}};global.fetch=async()=>({json:async()=>({})});global.alert=()=>{};
-let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__new=newSheet;global.__place=place;global.__bc=buildCircuit;global.__ps=parseStructured;global.__spice=parseSpice;global.__bands=resBands;global.__cat=BJT_CATALOG;global.__LB=LIB_BJT;global.__LD=LIB_DIO;global.__LM=LIB_MOS;global.__LJ=LIB_JFT;global.__look=catLookup;global.__spec=buildFromSpec;';
+let js=fs.readFileSync('app_extract.js','utf8');js+='\n;global.__S=S;global.__new=newSheet;global.__place=place;global.__bc=buildCircuit;global.__ps=parseStructured;global.__spice=parseSpice;global.__bands=resBands;global.__cat=BJT_CATALOG;global.__LB=LIB_BJT;global.__LD=LIB_DIO;global.__LM=LIB_MOS;global.__LJ=LIB_JFT;global.__look=catLookup;global.__spec=buildFromSpec;global.__cls=libClassOf;global.__filt=filterPalette;';
 (0,eval)(js);const S=global.__S;let pass=0,fail=0;const chk=(c,m,d)=>{console.log((c?'PASS':'FAIL')+'  '+m+(d?' - '+d:''));c?pass++:fail++;};
 
 // (1) part number on the component drives the engine model (values = LTspice standard.bjt cards)
@@ -71,5 +71,11 @@ const vZ=runSp('V1 in 0 10\nR1 in k 1k\nD1 0 k BZX84C5V1\n.op');
 chk(vZ('k')>4.7&&vZ('k')<5.6,'ZENER BREAKDOWN: BZX84C5V1 reverse-clamps near 5.1V',vZ('k')&&vZ('k').toFixed(2)+'V');
 const vF=runSp('V1 in 0 5\nR1 in a 1k\nD1 a 0 BZX84C5V1\n.op');
 chk(vF('a')>0.5&&vF('a')<1.1,'same zener still conducts normally forward',vF('a')&&vF('a').toFixed(2)+'V');
+
+// (7) library discoverability: part numbers map to the right placeable device class
+chk(global.__cls('2N3904')==='NPN'&&global.__cls('2N3906')==='PNP','libClassOf routes BJTs to NPN/PNP');
+chk(global.__cls('BZX84C5V1')==='D'&&global.__cls('IRF9540')==='PMOS'&&global.__cls('2N5457')==='NJF','libClassOf routes diode/PMOS/JFET classes');
+let filtOK=true;try{global.__filt('2N39');global.__filt('');}catch(e){filtOK=false;}
+chk(filtOK,'palette library search runs without error (headless)');
 
 console.log('\n'+pass+' passed, '+fail+' failed');process.exit(fail?1:0);
