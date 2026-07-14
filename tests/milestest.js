@@ -6,7 +6,7 @@ const cv={};function el(id){if(id&&/canvas|sch/.test(id)){if(!cv[id])cv[id]=mk()
 global.document={getElementById:el,createElement:()=>el(''),querySelectorAll:()=>[],addEventListener(){},body:el(''),documentElement:{dataset:{}}};
 const store={};global.window={addEventListener(){},location:{href:''},innerHeight:800};global.localStorage={getItem:k=>store[k]??null,setItem:(k,v)=>{store[k]=v;},removeItem:k=>{delete store[k];}};global.fetch=async()=>({json:async()=>({})});global.alert=()=>{};
 let js=fs.readFileSync('app_extract.js','utf8');
-js+='\n;global.__S=S;global.__BB=BB;global.__TH=()=>TH;global.__theme=applyTheme;global.__new=newSheet;global.__demo=loadDemo;global.__place=place;global.__lint=lintSchematic;global.__bbClick=bbClick;global.__bbMode=bbMode;global.__bbRun=bbRun;global.__bbLint=bbLint;global.__bbXY=bbHoleXY;global.__fx=fxCards;global.__rep=buildReportHTML;global.__fwLint=fwLint;global.__fwSug=fwSuggest;global.__ser=serializeDesign;global.__load=loadDesign;global.__restore=restoreDesign;global.__PARTS=PARTS;global.__pc=pinCoords;global.__bc=buildCircuit;global.__buildPCB=buildPCB;global.__PCB=PCB;global.__fpB=fpBounds;global.__nice=niceStep;';
+js+='\n;global.__S=S;global.__BB=BB;global.__TH=()=>TH;global.__theme=applyTheme;global.__new=newSheet;global.__demo=loadDemo;global.__place=place;global.__lint=lintSchematic;global.__bbClick=bbClick;global.__bbMode=bbMode;global.__bbRun=bbRun;global.__bbLint=bbLint;global.__bbXY=bbHoleXY;global.__fx=fxCards;global.__rep=buildReportHTML;global.__fwLint=fwLint;global.__fwSug=fwSuggest;global.__ser=serializeDesign;global.__load=loadDesign;global.__restore=restoreDesign;global.__PARTS=PARTS;global.__pc=pinCoords;global.__bc=buildCircuit;global.__buildPCB=buildPCB;global.__PCB=PCB;global.__fpB=fpBounds;global.__nice=niceStep;global.__FW=FW;global.__findPin=fwFindLedPin;';
 (0,eval)(js);const S=global.__S,BB=global.__BB;let pass=0,fail=0;const chk=(c,m,d)=>{console.log((c?'PASS':'FAIL')+'  '+m+(d?' - '+d:''));c?pass++:fail++;};
 
 // (1) theme palette switches
@@ -89,6 +89,27 @@ const fpr=global.__PCB.fps.find(f=>f.ref===r2.ref);
 chk(fpr&&fpr.pads[0].dx===-5&&fpr.pads[1].dx===5,'manual 10mm pitch → pads at ±5mm',fpr&&fpr.pads.map(p=>p.dx).join(','));
 const b2=global.__fpB(fpr);
 chk(Math.abs(b2.minx+3.15)<0.01&&Math.abs(b2.maxy-1.15)<0.01,'body bounds follow measured 6.3×2.3mm',JSON.stringify(b2));
+// (10b) FIRMWARE -> CIRCUIT: a sketch-driven GPIO pin lights the LED on the schematic
+global.__new();
+const pico2=global.__place('PICO',10,12),r3=global.__place('R',22,1,'220'),led3=global.__place('LED',28,1,'LEDred');
+global.__place('GND',29,6);   // ground symbol under the LED cathode
+const gp0=global.__pc(pico2)[0],rp2=global.__pc(r3),lp2=global.__pc(led3);
+// route ABOVE the pico's pin rows so no wire T-junctions onto another pin
+S.wires.push({x1:gp0.x,y1:gp0.y,x2:gp0.x,y2:1},{x1:gp0.x,y1:1,x2:rp2[0].x,y2:1},
+  {x1:rp2[1].x,y1:1,x2:lp2[0].x,y2:1},{x1:lp2[1].x,y1:1,x2:lp2[1].x,y2:6});
+const FW=global.__FW;
+FW.pins={0:1};                                            // sketch: digitalWrite(0, HIGH)
+let opHi=global.__bc(false).ckt.dcOP();
+const ledN=[S.nets.pinNet.get(led3.uid+':0'),S.nets.pinNet.get(led3.uid+':1')];
+const vHi=(opHi.V[ledN[0]]??0)-(opHi.V[ledN[1]]??0);
+FW.pins={0:0};                                            // sketch: digitalWrite(0, LOW)
+let opLo=global.__bc(false).ckt.dcOP();
+const vLo=(opLo.V[ledN[0]]??0)-(opLo.V[ledN[1]]??0);
+chk(vHi>1.4&&vHi<2.2,'GP0 HIGH from the sketch lights the LED (real Vf)',vHi.toFixed(2)+'V');
+chk(Math.abs(vLo)<0.2,'GP0 LOW turns it off',vLo.toFixed(3)+'V');
+const found=global.__findPin();
+chk(found&&found.pin===0&&found.via===r3,'fwFindLedPin traces LED -> series R -> GP0',found&&('GP'+found.pin+' via '+found.via.ref));
+FW.pins={};
 // (11) professional scope: 1-2-5 tick engine
 chk(global.__nice(8,8)===1&&global.__nice(0.05,6)===0.01&&global.__nice(33,6)===5,'niceStep picks 1-2-5 ticks',[global.__nice(8,8),global.__nice(0.05,6),global.__nice(33,6)].join(','));
 

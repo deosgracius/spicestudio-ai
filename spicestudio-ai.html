@@ -7479,12 +7479,25 @@ function mkHdr2(names,hw){const off=Math.floor((names.length/2-1)/2);
   return names.map((nm,i)=>({name:nm,dx:(i%2?hw:-hw),dy:Math.floor(i/2)-off}));}
 function mkHdr1(names,hw){const off=Math.floor((names.length-1)/2);
   return names.map((nm,i)=>({name:nm,dx:hw,dy:i-off}));}
-// MCU netlisting: power pins become sources (per-net deduped so paralleled GND pins can't sing the matrix)
+// board pin-number <-> GPIO pin-name mapping (Arduino-style digital pin p)
+function mcuGpioName(type,p){if(type==='PICO')return'GP'+p;if(type==='RPI40')return'GPIO'+p;
+  if(type==='MSP430')return p<8?'P1.'+p:'P2.'+(p-8);return null;}
+function mcuGpioNum(type,name){let m;if(type==='PICO'&&(m=name.match(/^GP(\d+)$/)))return+m[1];
+  if(type==='RPI40'&&(m=name.match(/^GPIO(\d+)$/)))return+m[1];
+  if(type==='MSP430'&&(m=name.match(/^P([12])\.(\d)$/)))return(+m[1]-1)*8+(+m[2]);
+  return null;}
+// MCU netlisting: power pins become sources (per-net deduped so paralleled GND pins can't sing the matrix),
+// and GPIO pins the FIRMWARE has written become 3.3V/0V logic-level sources - the sketch drives the circuit.
 function mcuNet(c,net,ckt){const P=PARTS[c.type];const done={};
   P.pinDefs.forEach((pd,i)=>{const nm=pd.name;let v=null;
     if(nm==='GND')v=0;else if(nm==='3V3'||nm==='DVCC')v=3.3;else if(nm==='5V'||nm==='VBUS'||nm==='VSYS')v=5;
     if(v===null)return;const nn=net(i),k=nn+'@'+v;if(done[k])return;done[k]=1;
-    ckt.add({type:'V',nodes:[nn,'0'],value:v,ac:0});});}
+    ckt.add({type:'V',nodes:[nn,'0'],value:v,ac:0});});
+  if(typeof FW!=='undefined'&&FW.pins)Object.entries(FW.pins).forEach(([p,val])=>{
+    const gn=mcuGpioName(c.type,+p);if(!gn)return;
+    const i=P.pinDefs.findIndex(pd=>pd.name===gn);if(i<0)return;
+    const nn=net(i),k=nn+'@gpio';if(done[k])return;done[k]=1;
+    ckt.add({type:'V',nodes:[nn,'0'],value:val?3.3:0,ac:0});});}
 const PARTS={
   R:{cat:'Passives',label:'Resistor',def:'1k',pins:2,draw:'res',color:'#c87137',
      net:(c,net,ckt)=>ckt.add({type:'R',nodes:[net(0),net(1)],value:parseVal(c.value)})},
@@ -7750,6 +7763,14 @@ function drawComp(c){const P=PARTS[c.type];const[cxs,cys]=toScreen(c.x,c.y);cons
   ctx.save();ctx.translate(cxs,cys);ctx.rotate(c.rot*Math.PI/180);
   const sel=S.sel===c;const pc=TH.partDarken<1?shade(P.color,TH.partDarken):P.color;ctx.lineWidth=2;ctx.strokeStyle=sel?'#388bfd':pc;ctx.fillStyle=sel?'#388bfd':pc;
   const L=s; // half-length to pin
+  // lit LED: warm halo whenever the operating point pushes real current through it
+  if(c.type==='LED'&&S.sim&&S.nets){const V=S.sim.dc||S.sim.finalV;
+    if(V){const a=S.nets.pinNet.get(c.uid+':0'),b=S.nets.pinNet.get(c.uid+':1');
+      const va=a==='0'?0:V[a],vb=b==='0'?0:V[b];
+      if(va!==undefined&&vb!==undefined){const md=libModel(c.value,'d')||MODELS.LEDred;
+        const i=(md.Is||1e-16)*(Math.exp(Math.min((va-vb)/(((md.N)||1.9)*VT),100))-1);
+        if(i>1e-3){ctx.fillStyle='rgba(255,96,72,.22)';ctx.beginPath();ctx.arc(0,0,s*1.6,0,7);ctx.fill();
+          ctx.fillStyle='rgba(255,130,105,.3)';ctx.beginPath();ctx.arc(0,0,s*0.95,0,7);ctx.fill();}}}}
   if(P.draw==='mcu')drawMcu(P,L,pc,sel,c);else drawSym(P.draw,L,pc,sel);
   ctx.restore();
   // pins
@@ -8917,9 +8938,15 @@ function fwLoadExample(k){if(!k||!FW_EXAMPLES[k])return;if(typeof fwStop==='func
   ed.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();const s=ed.selectionStart,en=ed.selectionEnd;
     ed.value=ed.value.slice(0,s)+'  '+ed.value.slice(en);ed.selectionStart=ed.selectionEnd=s+2;}});
   let t=null;ed.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>{if(!FW.running)fwLint();},400);});})();
-function fwDW(p,v){FW.pins[p]=v?1:0;if(p===13)fwLed();fwRenderPins();
-  // bridge: if a net named D<p> or the schematic has this pin, could drive it (future). v1 = visual.
-}
+function fwDW(p,v){FW.pins[p]=v?1:0;if(p===13)fwLed();fwRenderPins();fwDriveCircuit();}
+/* ---- firmware -> circuit coupling: when the sketch writes a GPIO that exists on an MCU
+   on the sheet, re-solve the schematic so LEDs blink and node voltages follow the code ---- */
+let _qdcLast=0;
+function fwDriveCircuit(){
+  if(!S.comps.some(c=>['PICO','RPI40','MSP430'].includes(c.type)))return;
+  const now=Date.now();if(now-_qdcLast<90)return;_qdcLast=now;
+  try{const{ckt}=buildCircuit(false);const op=ckt.dcOP();
+    S.sim={dc:op.V};S.flowData=null;draw();}catch(_){}}
 // transpile Arduino C-ish sketch → runnable async JS (handles the common subset: types, delay, setup/loop)
 function fwTranspile(src){
   let c=src.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/[^\n]*/g,'');   // comments
@@ -8937,6 +8964,19 @@ function fwLint(){const ed=document.getElementById('fw-code');if(!ed)return;
     const hasSetup=/function\s+setup/.test(js),hasLoop=/function\s+loop/.test(js);
     fwStatus(hasSetup&&hasLoop?'✓ sketch compiles':'⚠ sketch needs both setup() and loop()');
   }catch(e){fwStatus('⚠ '+((e&&e.message)||'syntax error'));}}
+/* which GPIO pin is an LED actually wired to? (direct, or through one series resistor) */
+function fwFindLedPin(){
+  const mcu=S.comps.find(c=>['PICO','RPI40','MSP430'].includes(c.type));if(!mcu)return null;
+  const nets=S.nets||extractNets();if(!S.nets)S.nets=nets;
+  const pn=(c,i)=>nets.pinNet.get(c.uid+':'+i);
+  for(const led of S.comps.filter(c=>c.type==='LED')){const aN=pn(led,0);
+    for(let i=0;i<PARTS[mcu.type].pinDefs.length;i++){
+      const g=mcuGpioNum(mcu.type,PARTS[mcu.type].pinDefs[i].name);if(g==null)continue;
+      const gN=pn(mcu,i);if(!gN)continue;
+      if(gN===aN)return{pin:g,led,mcu,via:null};
+      const r=S.comps.find(rc=>rc.type==='R'&&((pn(rc,0)===gN&&pn(rc,1)===aN)||(pn(rc,1)===gN&&pn(rc,0)===aN)));
+      if(r)return{pin:g,led,mcu,via:r};}}
+  return null;}
 /* ---- suggest a sketch that matches what's on the schematic/breadboard ---- */
 function fwSuggest(){
   const leds=S.comps.filter(c=>c.type==='LED'),pulses=S.comps.filter(c=>c.type==='VPULSE');
@@ -8946,7 +8986,10 @@ function fwSuggest(){
   if(!leds.length){
     code=`// No LED on the sheet yet - generic heartbeat. Add an LED and press Suggest again.\nvoid setup() {\n  Serial.begin(9600);\n}\n\nvoid loop() {\n  Serial.println("alive");\n  delay(1000);\n}`;}
   else if(leds.length===1){const r=S.comps.find(c=>c.type==='R');
-    code=`// Suggested from your circuit: blink ${leds[0].ref}${r?` (series ${r.value}Ω ${r.ref})`:''}\n// Hardware: D13 -> ${r?r.ref+' -> ':''}${leds[0].ref} anode, cathode -> GND\nvoid setup() {\n  pinMode(13, OUTPUT);\n  Serial.begin(9600);\n}\n\nvoid loop() {\n  digitalWrite(13, HIGH);\n  Serial.println("${leds[0].ref} on");\n  delay(${period});\n  digitalWrite(13, LOW);\n  delay(${period});\n}`;}
+    let wired=null;try{wired=fwFindLedPin();}catch(_){}
+    const pin=wired?wired.pin:13;
+    const where=wired?`${mcuGpioName(wired.mcu.type,pin)} on your ${PARTS[wired.mcu.type].label}`:'D13';
+    code=`// Suggested from your circuit: blink ${leds[0].ref}${r?` (series ${r.value}Ω ${r.ref})`:''}\n// Wired: ${where} -> ${r?r.ref+' -> ':''}${leds[0].ref} anode, cathode -> GND${wired?'\n// Press Run: the sketch drives the schematic - watch the LED blink on the sheet.':''}\nvoid setup() {\n  pinMode(${pin}, OUTPUT);\n  Serial.begin(9600);\n}\n\nvoid loop() {\n  digitalWrite(${pin}, HIGH);\n  Serial.println("${leds[0].ref} on");\n  delay(${period});\n  digitalWrite(${pin}, LOW);\n  delay(${period});\n}`;}
   else{const pins=leds.map((l,i)=>8+i),dwell=Math.max(60,Math.round(period/leds.length));
     code=`// Suggested from your circuit: chase ${leds.length} LEDs\n// Map: ${leds.map((l,i)=>l.ref+' -> D'+(8+i)).join(', ')} (each through its series resistor to GND)\nvoid setup() {\n${pins.map(p=>`  pinMode(${p}, OUTPUT);`).join('\n')}\n}\n\nvoid loop() {\n${pins.map(p=>`  digitalWrite(${p}, HIGH);\n  delay(${dwell});\n  digitalWrite(${p}, LOW);`).join('\n')}\n}`;}
   const ed=document.getElementById('fw-code');if(ed)ed.value=code;
