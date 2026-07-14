@@ -7471,6 +7471,20 @@ function libClassOf(name){const c=catLookup(name);if(!c)return null;
   return c.model.type==='pmos'?'PMOS':'NMOS';}
 const JF_MODELS={NJF:{type:'nmos',Vto:-2,Kp:2e-4,W:1e-6,L:1e-6,lambda:0.002},PJF:{type:'pmos',Vto:2,Kp:2e-4,W:1e-6,L:1e-6,lambda:0.002}};
 // Part templates. netlist(comp, netOf(pinIndex)) -> pushes elements onto a Circuit
+/* pin-layout builders for DIP packages and headers (names in PIN ORDER: DIP counts
+   down the left then UP the right; dual-row headers alternate odd/even like a real header) */
+function mkDip(names,hw){const n=names.length/2,off=Math.floor((n-1)/2);
+  return names.map((nm,i)=>i<n?{name:nm,dx:-hw,dy:i-off}:{name:nm,dx:hw,dy:(names.length-1-i)-off});}
+function mkHdr2(names,hw){const off=Math.floor((names.length/2-1)/2);
+  return names.map((nm,i)=>({name:nm,dx:(i%2?hw:-hw),dy:Math.floor(i/2)-off}));}
+function mkHdr1(names,hw){const off=Math.floor((names.length-1)/2);
+  return names.map((nm,i)=>({name:nm,dx:hw,dy:i-off}));}
+// MCU netlisting: power pins become sources (per-net deduped so paralleled GND pins can't sing the matrix)
+function mcuNet(c,net,ckt){const P=PARTS[c.type];const done={};
+  P.pinDefs.forEach((pd,i)=>{const nm=pd.name;let v=null;
+    if(nm==='GND')v=0;else if(nm==='3V3'||nm==='DVCC')v=3.3;else if(nm==='5V'||nm==='VBUS'||nm==='VSYS')v=5;
+    if(v===null)return;const nn=net(i),k=nn+'@'+v;if(done[k])return;done[k]=1;
+    ckt.add({type:'V',nodes:[nn,'0'],value:v,ac:0});});}
 const PARTS={
   R:{cat:'Passives',label:'Resistor',def:'1k',pins:2,draw:'res',color:'#c87137',
      net:(c,net,ckt)=>ckt.add({type:'R',nodes:[net(0),net(1)],value:parseVal(c.value)})},
@@ -7527,6 +7541,20 @@ const PARTS={
   LM358:{cat:'ICs',label:'LM358 OpAmp',def:'LM358',pins:8,draw:'ic',color:'#bc8cff',footprint:'DIP-8',package:'DIP-8',
     pinDefs:[{name:'OUT1',dx:-3,dy:-3},{name:'IN1-',dx:-3,dy:-1},{name:'IN1+',dx:-3,dy:1},{name:'VEE',dx:-3,dy:3},
              {name:'IN2+',dx:3,dy:3},{name:'IN2-',dx:3,dy:1},{name:'OUT2',dx:3,dy:-1},{name:'VCC',dx:3,dy:-3}]},
+  /* ---- MCUs & connectors: real pinouts. Power pins (3V3/5V/VBUS/VSYS/DVCC/GND) drive the
+     nets as sources so a board can power your circuit; GPIO pins are passive connector pins. ---- */
+  PICO:{cat:'MCU & Headers',label:'Raspberry Pi Pico',def:'RP2040',pins:40,draw:'mcu',color:'#3fb9a8',footprint:'DIP-40',
+    pinDefs:mkDip(['GP0','GP1','GND','GP2','GP3','GP4','GP5','GND','GP6','GP7','GP8','GP9','GND','GP10','GP11','GP12','GP13','GND','GP14','GP15',
+      'GP16','GP17','GND','GP18','GP19','GP20','GP21','GND','GP22','RUN','GP26','GP27','GND','GP28','ADC_VREF','3V3','3V3_EN','GND','VSYS','VBUS'],5),net:mcuNet},
+  RPI40:{cat:'MCU & Headers',label:'Raspberry Pi GPIO',def:'40-pin',pins:40,draw:'mcu',color:'#c04b4b',footprint:'HDR-2x20',
+    pinDefs:mkHdr2(['3V3','5V','GPIO2','5V','GPIO3','GND','GPIO4','GPIO14','GND','GPIO15','GPIO17','GPIO18','GPIO27','GND','GPIO22','GPIO23','3V3','GPIO24','GPIO10','GND',
+      'GPIO9','GPIO25','GPIO11','GPIO8','GND','GPIO7','ID_SD','ID_SC','GPIO5','GND','GPIO6','GPIO12','GPIO13','GND','GPIO19','GPIO16','GPIO26','GPIO20','GND','GPIO21'],4),net:mcuNet},
+  MSP430:{cat:'MCU & Headers',label:'MSP430G2553',def:'DIP-20',pins:20,draw:'mcu',color:'#c0654b',footprint:'DIP-20',
+    pinDefs:mkDip(['DVCC','P1.0','P1.1','P1.2','P1.3','P1.4','P1.5','P2.0','P2.1','P2.2','P2.3','P2.4','P2.5','P1.6','P1.7','RST','TEST','XOUT','XIN','GND'],4),net:mcuNet},
+  HDR4:{cat:'MCU & Headers',label:'Header 1×4',def:'2.54mm',pins:4,draw:'mcu',color:'#8b949e',footprint:'HDR-1x04',
+    pinDefs:mkHdr1(['1','2','3','4'],2),net:()=>{}},
+  HDR8:{cat:'MCU & Headers',label:'Header 1×8',def:'2.54mm',pins:8,draw:'mcu',color:'#8b949e',footprint:'HDR-1x08',
+    pinDefs:mkHdr1(['1','2','3','4','5','6','7','8'],2),net:()=>{}},
 };
 // Phase 0 normalization: every part gets NAMED, positioned pins + a footprint (shared by PCB / breadboard / firmware)
 const FP_BY_DRAW={res:'R_0805',cap:'C_0805',ind:'L_1210',diode:'D_SOD123',led:'LED_5mm',vsrc:'Conn_1x02',vac:'Conn_1x02',vpulse:'Conn_1x02',isrc:'Conn_1x02',vcc:'TestPoint',gnd:'TestPoint',ic:'DIP-8'};
@@ -7576,7 +7604,7 @@ let uidC=0;
 const canvas=document.getElementById('sch');const ctx=canvas.getContext('2d');
 const wcanvas=document.getElementById('wave-canvas');const wctx=wcanvas.getContext('2d');
 
-function nextRef(type){const pre={R:'R',C:'C',L:'L',D:'D',DZ:'D',LED:'LED',V:'V',VAC:'V',VPULSE:'V',I:'I',NPN:'Q',PNP:'Q',NMOS:'Q',PMOS:'Q',NJF:'J',PJF:'J',VCC:'TP',V33:'TP',V12:'TP',GND:'TP',LM358:'U'}[type]||'U';
+function nextRef(type){const pre={R:'R',C:'C',L:'L',D:'D',DZ:'D',LED:'LED',V:'V',VAC:'V',VPULSE:'V',I:'I',NPN:'Q',PNP:'Q',NMOS:'Q',PMOS:'Q',NJF:'J',PJF:'J',HDR4:'J',HDR8:'J',RPI40:'J',VCC:'TP',V33:'TP',V12:'TP',GND:'TP',LM358:'U'}[type]||'U';
   S.refCount[pre]=(S.refCount[pre]||0)+1;return pre+S.refCount[pre];}
 
 function addComp(type,gx,gy){const P=PARTS[type];const c={uid:++uidC,type,x:gx,y:gy,rot:0,value:P.def,ref:nextRef(type)};S.comps.push(c);draw();updateStatus();return c;}
@@ -7722,19 +7750,39 @@ function drawComp(c){const P=PARTS[c.type];const[cxs,cys]=toScreen(c.x,c.y);cons
   ctx.save();ctx.translate(cxs,cys);ctx.rotate(c.rot*Math.PI/180);
   const sel=S.sel===c;const pc=TH.partDarken<1?shade(P.color,TH.partDarken):P.color;ctx.lineWidth=2;ctx.strokeStyle=sel?'#388bfd':pc;ctx.fillStyle=sel?'#388bfd':pc;
   const L=s; // half-length to pin
-  drawSym(P.draw,L,pc,sel);
+  if(P.draw==='mcu')drawMcu(P,L,pc,sel,c);else drawSym(P.draw,L,pc,sel);
   ctx.restore();
   // pins
   pinCoords(c).forEach(p=>{const[px,py]=toScreen(p.x,p.y);ctx.fillStyle=pinHot(p)?'#ffd33d':'#d29922';ctx.beginPath();ctx.arc(px,py,3,0,7);ctx.fill();});
   // label
   if(P.pins>=2){ctx.fillStyle=sel?TH.refSel:TH.ref;ctx.font=`${Math.max(9,10*S.zoom)}px var(--mono)`;ctx.textAlign='center';
-    const yoff=P.draw==='ic'?s*4.4:s*0.9;ctx.fillText(c.ref,cxs,cys-yoff);
+    const yoff=P.draw==='mcu'?(Math.max(...P.pinDefs.map(p=>Math.abs(p.dy)))+2.1)*s:P.draw==='ic'?s*4.4:s*0.9;ctx.fillText(c.ref,cxs,cys-yoff);
     if(P.pins===2){ctx.fillStyle=TH.val;ctx.fillText(fmtVal(c),cxs,cys+s*1.15);}}
   else if(P.ground){ctx.fillStyle='#8b949e';ctx.font=`${9*S.zoom}px var(--mono)`;ctx.textAlign='center';}
 }
 function pinHot(p){if(S.tool!=='wire')return false;const[gx,gy]=snapMouse();return gx===p.x&&gy===p.y;}
 function fmtVal(c){const P=PARTS[c.type];if(['V','I','VCC','V33','V12'].includes(c.type))return c.value+(c.type==='I'?'A':'V').replace('VV','V');
   const unit={R:'Ω',C:'F',L:'H'}[c.type]||'';return c.value+unit;}
+/* MCU / connector body: rectangle sized from its pinDefs, pin stubs, names at readable zoom */
+function drawMcu(P,L,col,sel,c){
+  const xs=P.pinDefs.map(p=>p.dx),ys=P.pinDefs.map(p=>p.dy);
+  const single=Math.min(...xs)===Math.max(...xs);            // 1-row header: body sits left of the pins
+  const hw=single?1.2*L:(Math.max(...xs.map(Math.abs))-1)*L;
+  const x0=single?(Math.min(...xs)-3.2)*L:-hw,x1=single?(Math.min(...xs)-0.8)*L:hw;
+  const top=(Math.min(...ys)-0.7)*L,bot=(Math.max(...ys)+0.7)*L;
+  ctx.fillStyle=TH.mode==='light'?'#e9ebf1':'#151a24';
+  ctx.strokeStyle=sel?'#388bfd':col;ctx.lineWidth=2;
+  ctx.beginPath();ctx.rect(x0,top,x1-x0,bot-top);ctx.fill();ctx.stroke();
+  ctx.lineWidth=1.4;
+  P.pinDefs.forEach(pd=>{const px=pd.dx*L,py=pd.dy*L;const inner=single?x1:(pd.dx>0?hw:-hw);
+    ctx.beginPath();ctx.moveTo(inner,py);ctx.lineTo(px,py);ctx.strokeStyle=sel?'#388bfd':col;ctx.stroke();});
+  if(L>10){ctx.font=`${Math.max(6.5,0.42*L)}px var(--mono)`;ctx.fillStyle=TH.ref;
+    P.pinDefs.forEach(pd=>{const py=pd.dy*L;const inner=single?x1:(pd.dx>0?hw:-hw);
+      ctx.textAlign=(single||pd.dx>0)?'right':'left';
+      ctx.fillText(pd.name,inner+((single||pd.dx>0)?-3:3),py+2.5);});}
+  if(!single){ctx.beginPath();ctx.arc(0,top,L*0.35,0,Math.PI);ctx.strokeStyle=sel?'#388bfd':col;ctx.lineWidth=2;ctx.stroke();}
+  ctx.font=`${Math.max(8,0.55*L)}px var(--mono)`;ctx.fillStyle=sel?'#388bfd':col;ctx.textAlign='center';
+  ctx.fillText(P.label,(x0+x1)/2,top-0.4*L);}
 function drawSym(kind,L,color,sel){ctx.beginPath();
   // leads
   const lead=L*0.45;
@@ -7937,8 +7985,17 @@ function openProps(c,x,y){const P=PARTS[c.type];const el=document.getElementById
   else if(c.type==='PMOS')valField=search('m','pmos','PMOS');
   else if(c.type==='NJF')valField=search('j','njf','NJF');
   else if(c.type==='PJF')valField=search('j','pjf','PJF');
+  // real physical dimensions (mm) drive the PCB footprint, silkscreen and 3D body
+  let fpField='';
+  if(P.footprint&&P.pins>=2){const fp=c.fp||{};
+    fpField=`<label>Footprint mm <span style="color:var(--dim);font-weight:400">body L × W · pad pitch</span></label>
+    <div style="display:flex;gap:5px">
+      <input id="pfl" placeholder="auto" title="body length mm" value="${fp.l??''}">
+      <input id="pfw" placeholder="auto" title="body width mm" value="${fp.w??''}">
+      <input id="pfp" placeholder="auto" title="pad pitch mm (2-pin parts)" value="${fp.p??''}" ${P.pins>2?'disabled':''}>
+    </div>`;}
   el.innerHTML=`<h4>${c.ref||P.label} · ${P.label}</h4>${valField}
-    <label>Rotation</label><input id="pr" value="${c.rot}">
+    <label>Rotation</label><input id="pr" value="${c.rot}">${fpField}
     <div class="row"><button class="del" onclick="delComp(${c.uid})">Delete</button><button class="ok" onclick="applyProps(${c.uid})">Apply</button></div>`;
   el.style.left=Math.min(x,canvas.width-240)+'px';el.style.top=Math.min(y,canvas.height-160)+'px';el.style.display='block';
   setTimeout(()=>document.getElementById('pv').focus(),0);}
@@ -7947,7 +8004,11 @@ function applyProps(uid){const c=S.comps.find(x=>x.uid===uid);if(!c)return;c.val
   if(catLookup(c.value)||GEN.includes(c.value))delete c.spiceModel;   // picked from the catalog: the part number now drives the model
   else if(GEN.includes(c.type)||c.type==='D')                          // typed something the library doesn't know: warn, don't silently fake it
     aiPush('sys',`⚠ <b>${esc(c.value)}</b> is not in the component library - ${c.ref} will simulate with the generic ${PARTS[c.type].label} model.`);
-  c.rot=(+document.getElementById('pr').value||0)%360;hideProps();invalidate();draw();}
+  const gv=id=>{const e2=document.getElementById(id);const v=e2&&parseFloat(e2.value);return isFinite(v)&&v>0?v:null;};
+  const fl=gv('pfl'),fw=gv('pfw'),fpp=gv('pfp');
+  if(fl||fw||fpp){c.fp={};if(fl)c.fp.l=fl;if(fw)c.fp.w=fw;if(fpp)c.fp.p=fpp;}else delete c.fp;
+  c.rot=(+document.getElementById('pr').value||0)%360;hideProps();invalidate();draw();
+  if(typeof buildPCB==='function'&&PCB.fps.length){try{buildPCB();if(curView==='pcb')drawPCB();}catch(_){}}}
 function delComp(uid){S.comps=S.comps.filter(x=>x.uid!==uid);S.sel=null;hideProps();invalidate();draw();}
 function hideProps(){document.getElementById('props').style.display='none';}
 
@@ -7978,7 +8039,7 @@ function lintSchematic(){const issues=[];
   let nets;try{nets=S.nets||extractNets();}catch(_){return issues;}
   const netVals=[...nets.pinNet.values()];
   const hasGnd=S.comps.some(c=>PARTS[c.type].ground)||netVals.includes('0');
-  const hasSrc=S.comps.some(c=>['V','VAC','VPULSE','I','VCC','V33','V12'].includes(c.type));
+  const hasSrc=S.comps.some(c=>['V','VAC','VPULSE','I','VCC','V33','V12','PICO','RPI40','MSP430'].includes(c.type));
   if(!hasSrc)issues.push('no source: nothing drives the circuit');
   if(!hasGnd)issues.push('no ground reference (node 0)');
   const cnt={};netVals.forEach(nm=>cnt[nm]=(cnt[nm]||0)+1);
@@ -8123,6 +8184,7 @@ function drawWave(){const W=wcanvas.width,H=wcanvas.height;wctx.clearRect(0,0,W,
     nets.forEach((nm,i)=>{const col=colFor(nm,i);wctx.strokeStyle=col;wctx.lineWidth=1.8;wctx.beginPath();
       S.sim.trace[nm].forEach((v,j)=>{const x=PAD.l+pw*times[j]/tMax,y=PAD.t+ph*(1-(v-vMin)/(vMax-vMin));j?wctx.lineTo(x,y):wctx.moveTo(x,y);});wctx.stroke();
       legend.innerHTML+=legTag(col,nm,'',nets.length<=4?meas(S.sim.trace[nm],times):'');});
+    S._wmap={mode:'tran',PAD,pw,ph,vMin,vMax,t1:tMax,nets,times,colFor};drawWaveCursor();
   }else if(S.waveView==='ac'&&S.ac){
     const nets=pick(Object.keys(S.ac.out));const fs=S.ac.freqs;const lf0=Math.log10(fs[0]),lf1=Math.log10(fs[fs.length-1]);
     let mMin=1e9,mMax=-1e9;nets.forEach(nm=>S.ac.out[nm].forEach(c=>{const db=20*Math.log10(cabs(c)+1e-12);if(isFinite(db)){mMin=Math.min(mMin,db);mMax=Math.max(mMax,db);}}));
@@ -8130,16 +8192,58 @@ function drawWave(){const W=wcanvas.width,H=wcanvas.height;wctx.clearRect(0,0,W,
     nets.forEach((nm,i)=>{const col=colFor(nm,i);wctx.strokeStyle=col;wctx.lineWidth=1.8;wctx.beginPath();
       S.ac.out[nm].forEach((c,j)=>{const db=20*Math.log10(cabs(c)+1e-12);const x=PAD.l+pw*(Math.log10(fs[j])-lf0)/(lf1-lf0),y=PAD.t+ph*(1-(db-mMin)/(mMax-mMin));j?wctx.lineTo(x,y):wctx.moveTo(x,y);});wctx.stroke();
       legend.innerHTML+=legTag(col,nm,' (dB)',nets.length<=3?acMeas(S.ac.out[nm],fs):'');});
+    S._wmap={mode:'ac',PAD,pw,ph,mMin,mMax,lf0,lf1,nets,fs,colFor};drawWaveCursor();
   }else{wctx.fillStyle=TH.dim;wctx.font='12px Consolas,monospace';wctx.textAlign='center';
     wctx.fillText('No traces yet',W/2,H/2-8);
     wctx.fillStyle=TH.dim2;wctx.fillText('Run Transient or AC Sweep, then probe nodes with the ◎ tool',W/2,H/2+12);}
 }
-function gridY(vMin,vMax,P,pw,ph,unit){wctx.fillStyle=TH.waveText;wctx.font='10px var(--mono)';wctx.textAlign='right';wctx.strokeStyle=TH.waveGrid;
-  for(let i=0;i<=4;i++){const v=vMin+(vMax-vMin)*i/4;const y=P.t+ph*(1-i/4);wctx.beginPath();wctx.moveTo(P.l,y);wctx.lineTo(P.l+pw,y);wctx.stroke();wctx.fillText(v.toFixed(1),P.l-5,y+3);}}
-function gridX(t0,t1,P,pw,ph,unit){wctx.fillStyle=TH.waveText;wctx.textAlign='center';for(let i=0;i<=5;i++){const t=t0+(t1-t0)*i/5;const x=P.l+pw*i/5;wctx.fillText(fmtEng(t),x,P.t+ph+14);}}
-function gridXlog(f0,f1,P,pw,ph){wctx.fillStyle=TH.waveText;wctx.textAlign='center';const l0=Math.log10(f0),l1=Math.log10(f1);
-  for(let d=Math.ceil(l0);d<=Math.floor(l1);d++){const x=P.l+pw*(d-l0)/(l1-l0);wctx.strokeStyle=TH.waveGrid;wctx.beginPath();wctx.moveTo(x,P.t);wctx.lineTo(x,P.t+ph);wctx.stroke();
-    const f=Math.pow(10,d);wctx.fillText(f>=1e3?(f/1e3)+'k':f+'',x,P.t+ph+14);}}
+/* scope hover cursor: vertical marker + per-trace readout at the pointer */
+function drawWaveCursor(){const m=S._wmap;if(!m||S.waveCursor==null)return;
+  const x=S.waveCursor;if(x<m.PAD.l||x>m.PAD.l+m.pw)return;
+  wctx.strokeStyle=TH.waveText;wctx.globalAlpha=0.65;wctx.setLineDash([3,3]);
+  wctx.beginPath();wctx.moveTo(x,m.PAD.t);wctx.lineTo(x,m.PAD.t+m.ph);wctx.stroke();wctx.setLineDash([]);wctx.globalAlpha=1;
+  const lines=[];
+  if(m.mode==='tran'){const t=(x-m.PAD.l)/m.pw*m.t1;
+    let j=0;for(let k=1;k<m.times.length;k++)if(Math.abs(m.times[k]-t)<Math.abs(m.times[j]-t))j=k;
+    lines.push('t = '+fmtEng(m.times[j])+'s');
+    m.nets.forEach((nm,i)=>{const v=S.sim.trace[nm][j];lines.push({col:m.colFor(nm,i),txt:nm+' = '+fmtEng(v)+'V'});});}
+  else{const f=Math.pow(10,m.lf0+(x-m.PAD.l)/m.pw*(m.lf1-m.lf0));
+    let j=0;for(let k=1;k<m.fs.length;k++)if(Math.abs(Math.log10(m.fs[k])-Math.log10(f))<Math.abs(Math.log10(m.fs[j])-Math.log10(f)))j=k;
+    lines.push('f = '+fmtEng(m.fs[j])+'Hz');
+    m.nets.forEach((nm,i)=>{const db=20*Math.log10(cabs(S.ac.out[nm][j])+1e-12);lines.push({col:m.colFor(nm,i),txt:nm+' = '+db.toFixed(1)+'dB'});});}
+  wctx.font='10.5px var(--mono)';
+  const w=Math.max(...lines.map(l=>wctx.measureText(typeof l==='string'?l:l.txt).width))+18;
+  const bx=Math.min(x+10,m.PAD.l+m.pw-w-4),by=m.PAD.t+6,lh=14,bh=lines.length*lh+8;
+  wctx.fillStyle=TH.labelBox;wctx.fillRect(bx,by,w,bh);wctx.strokeStyle=TH.waveFrame;wctx.strokeRect(bx,by,w,bh);
+  wctx.textAlign='left';
+  lines.forEach((l,i)=>{const y=by+13+i*lh;
+    if(typeof l==='string'){wctx.fillStyle=TH.waveText;wctx.fillText(l,bx+7,y);}
+    else{wctx.fillStyle=l.col;wctx.fillRect(bx+6,y-7,8,3);wctx.fillStyle=TH.waveText;wctx.fillText(l.txt,bx+18,y);}});}
+/* professional scope grid: 1-2-5 tick steps, minor divisions, emphasized zero axis */
+function niceStep(range,target){const raw=range/target,mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const n=raw/mag;return(n<1.5?1:n<3?2:n<7?5:10)*mag;}   // Heckbert nice numbers
+function gridY(vMin,vMax,P,pw,ph,unit){wctx.font='10px var(--mono)';wctx.textAlign='right';
+  const step=niceStep(vMax-vMin,6);
+  wctx.strokeStyle=TH.waveGrid;wctx.globalAlpha=0.5;wctx.beginPath();   // minor lines at half-steps
+  for(let v=Math.ceil(vMin/(step/2))*(step/2);v<=vMax;v+=step/2){const y=P.t+ph*(1-(v-vMin)/(vMax-vMin));wctx.moveTo(P.l,y);wctx.lineTo(P.l+pw,y);}
+  wctx.stroke();wctx.globalAlpha=1;
+  for(let v=Math.ceil(vMin/step)*step;v<=vMax+1e-12;v+=step){const y=P.t+ph*(1-(v-vMin)/(vMax-vMin));
+    wctx.strokeStyle=TH.waveGrid;wctx.beginPath();wctx.moveTo(P.l,y);wctx.lineTo(P.l+pw,y);wctx.stroke();
+    wctx.fillStyle=TH.waveText;wctx.fillText(fmtEng(Math.abs(v)<step*1e-6?0:v)+(unit||''),P.l-5,y+3);}
+  if(vMin<0&&vMax>0){const y0=P.t+ph*(1-(0-vMin)/(vMax-vMin));   // emphasized zero axis
+    wctx.strokeStyle=TH.waveText;wctx.globalAlpha=0.55;wctx.beginPath();wctx.moveTo(P.l,y0);wctx.lineTo(P.l+pw,y0);wctx.stroke();wctx.globalAlpha=1;}}
+function gridX(t0,t1,P,pw,ph,unit){wctx.font='10px var(--mono)';wctx.textAlign='center';
+  const step=niceStep(t1-t0,8);
+  for(let t=Math.ceil(t0/step)*step;t<=t1+1e-15;t+=step){const x=P.l+pw*(t-t0)/(t1-t0);
+    wctx.strokeStyle=TH.waveGrid;wctx.beginPath();wctx.moveTo(x,P.t);wctx.lineTo(x,P.t+ph);wctx.stroke();
+    wctx.fillStyle=TH.waveText;wctx.fillText(fmtEng(t)+(unit||''),x,P.t+ph+14);}}
+function gridXlog(f0,f1,P,pw,ph){wctx.fillStyle=TH.waveText;wctx.font='10px var(--mono)';wctx.textAlign='center';const l0=Math.log10(f0),l1=Math.log10(f1);
+  for(let d=Math.ceil(l0)-1;d<=Math.floor(l1);d++){
+    for(let m=2;m<10;m++){const f=Math.pow(10,d)*m;if(f<f0||f>f1)continue;const x=P.l+pw*(Math.log10(f)-l0)/(l1-l0);
+      wctx.strokeStyle=TH.waveGrid;wctx.globalAlpha=0.4;wctx.beginPath();wctx.moveTo(x,P.t);wctx.lineTo(x,P.t+ph);wctx.stroke();wctx.globalAlpha=1;}
+    const fd=Math.pow(10,d);if(fd<f0||fd>f1)continue;const x=P.l+pw*(d-l0)/(l1-l0);
+    wctx.strokeStyle=TH.waveGrid;wctx.beginPath();wctx.moveTo(x,P.t);wctx.lineTo(x,P.t+ph);wctx.stroke();
+    wctx.fillStyle=TH.waveText;wctx.fillText(fd>=1e6?(fd/1e6)+'M':fd>=1e3?(fd/1e3)+'k':fd+'',x,P.t+ph+14);}}
 
 /* ============================================================================
    7. AI COPILOT - local intelligence engine + optional Claude API
@@ -8704,6 +8808,7 @@ function miniSvg(kind,color){const c=color;
   if(kind==='ind')return`<svg width="30" height="16"><path d="M0 8 h5 a3 3 0 0 1 6 0 a3 3 0 0 1 6 0 a3 3 0 0 1 6 0 h5" fill="none" stroke="${c}" stroke-width="1.5"/></svg>`;
   if(kind==='diode'||kind==='led')return`<svg width="30" height="16"><line x1="0" y1="8" x2="9" y2="8" stroke="${c}" stroke-width="1.5"/><polygon points="9,3 9,13 20,8" fill="${kind==='led'?c:'none'}" stroke="${c}" stroke-width="1.5"/><line x1="20" y1="3" x2="20" y2="13" stroke="${c}" stroke-width="2"/><line x1="20" y1="8" x2="30" y2="8" stroke="${c}" stroke-width="1.5"/></svg>`;
   if(kind==='vsrc'||kind==='vac'||kind==='vpulse'||kind==='isrc')return`<svg width="30" height="16"><circle cx="15" cy="8" r="7" fill="none" stroke="${c}" stroke-width="1.5"/><text x="15" y="11" font-size="8" fill="${c}" text-anchor="middle">${kind==='vac'?'∿':kind==='isrc'?'I':kind==='vpulse'?'⊓':'V'}</text></svg>`;
+  if(kind==='mcu')return`<svg width="30" height="16"><rect x="8" y="1" width="14" height="14" rx="1" fill="none" stroke="${c}" stroke-width="1.4"/><line x1="4" y1="4" x2="8" y2="4" stroke="${c}"/><line x1="4" y1="8" x2="8" y2="8" stroke="${c}"/><line x1="4" y1="12" x2="8" y2="12" stroke="${c}"/><line x1="22" y1="4" x2="26" y2="4" stroke="${c}"/><line x1="22" y1="8" x2="26" y2="8" stroke="${c}"/><line x1="22" y1="12" x2="26" y2="12" stroke="${c}"/></svg>`;
   if(kind==='ic')return`<svg width="30" height="16"><rect x="9" y="2" width="12" height="12" rx="1" fill="none" stroke="${c}" stroke-width="1.5"/><circle cx="15" cy="4" r="1.3" fill="${c}"/></svg>`;
   if(kind==='nmos'||kind==='pmos')return`<svg width="30" height="16"><line x1="2" y1="8" x2="10" y2="8" stroke="${c}" stroke-width="1.4"/><line x1="10" y1="3" x2="10" y2="13" stroke="${c}" stroke-width="1.4"/><line x1="13" y1="3" x2="13" y2="13" stroke="${c}" stroke-width="1.4"/><line x1="13" y1="5" x2="24" y2="3" stroke="${c}" stroke-width="1.2"/><line x1="13" y1="11" x2="24" y2="13" stroke="${c}" stroke-width="1.2"/></svg>`;
   if(kind==='npn'||kind==='pnp')return`<svg width="30" height="16"><line x1="2" y1="8" x2="11" y2="8" stroke="${c}" stroke-width="1.4"/><line x1="11" y1="2" x2="11" y2="14" stroke="${c}" stroke-width="1.6"/><line x1="11" y1="5" x2="24" y2="2" stroke="${c}" stroke-width="1.2"/><line x1="11" y1="11" x2="24" y2="14" stroke="${c}" stroke-width="1.2"/></svg>`;
@@ -8891,8 +8996,10 @@ function buildPCB(){
   const prev={};PCB.fps.forEach(f=>prev[f.ref]=f);
   PCB.fps=S.comps.filter(c=>PARTS[c.type].footprint).map((c,i)=>{
     const P=PARTS[c.type];const p0=prev[c.ref];
-    const pads=P.pinDefs.map((pd,idx)=>({name:pd.name,dx:pd.dx,dy:pd.dy,net:netOf(c.uid,idx)}));
-    return{ref:c.ref,uid:c.uid,type:c.type,value:c.value,fp:P.footprint,rot:0,
+    let pads=P.pinDefs.map((pd,idx)=>({name:pd.name,dx:pd.dx,dy:pd.dy,net:netOf(c.uid,idx)}));
+    if(c.fp&&c.fp.p&&P.pins===2){const half=Math.max(1,Math.round(c.fp.p/2));   // manual pad pitch in mm (grid = 1mm)
+      pads=[{...pads[0],dx:-half,dy:0},{...pads[1],dx:half,dy:0}];}
+    return{ref:c.ref,uid:c.uid,type:c.type,value:c.value,fp:P.footprint,dims:c.fp||null,rot:0,
       x:p0?p0.x:(4+(i%4)*9),y:p0?p0.y:(4+Math.floor(i/4)*8),pads};
   });
 }
@@ -8989,7 +9096,9 @@ function pcbAutoroute(){
 }
 function toPcb(x,y){return[PCB.ox+x*MMPP*PCB.zoom,PCB.oy+y*MMPP*PCB.zoom];}
 function fpBounds(f){const xs=f.pads.map(p=>p.dx),ys=f.pads.map(p=>p.dy);
-  return{minx:Math.min(...xs,0)-0.9,maxx:Math.max(...xs,0)+0.9,miny:Math.min(...ys,0)-0.9,maxy:Math.max(...ys,0)+0.9};}
+  let minx=Math.min(...xs,0)-0.9,maxx=Math.max(...xs,0)+0.9,miny=Math.min(...ys,0)-0.9,maxy=Math.max(...ys,0)+0.9;
+  if(f.dims){if(f.dims.l){minx=-f.dims.l/2;maxx=f.dims.l/2;}if(f.dims.w){miny=-f.dims.w/2;maxy=f.dims.w/2;}}   // real measured body: leads may extend beyond it
+  return{minx,maxx,miny,maxy};}
 function padAt(gx,gy){for(const f of PCB.fps)for(const pd of f.pads){if(f.x+pd.dx===gx&&f.y+pd.dy===gy)return{f,pd,x:gx,y:gy,net:pd.net};}return null;}
 function pcb3d(){PCB.d3=!PCB.d3;const b=document.getElementById('pm-3d');if(b)b.classList.toggle('active',PCB.d3);if(pcbCanvas)pcbCanvas.style.cursor=PCB.d3?'grab':(PCB.mode==='select'?'default':'crosshair');drawPCB();}
 // resistor 4-band colour code computed from the actual value (black brown red … white; gold multiplier for sub-10Ω)
@@ -9420,6 +9529,10 @@ function drawBB(){
   if(st&&!(bld&&(bld.parts.length||bld.jumpers.length||bld.pending)))st.innerHTML=`<b>${BB.place.length}</b> parts · <b>${BB.jumpers.length}</b> rail jumpers · auto-built from the schematic`;
 }
 
+// scope cursor: track the pointer over the waveform canvas
+(function(){if(typeof wcanvas==='undefined'||!wcanvas||!wcanvas.addEventListener)return;
+  wcanvas.addEventListener('mousemove',e=>{const r=wcanvas.getBoundingClientRect();S.waveCursor=e.clientX-r.left;drawWave();});
+  wcanvas.addEventListener('mouseleave',()=>{S.waveCursor=null;drawWave();});})();
 // resizable scope: drag the top edge of the waveform panel (persisted)
 (function(){const rz=document.getElementById('wave-resize'),wp=document.getElementById('wave-panel');
   if(!rz||!rz.addEventListener||!wp||!wp.addEventListener)return;

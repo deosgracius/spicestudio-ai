@@ -6,7 +6,7 @@ const cv={};function el(id){if(id&&/canvas|sch/.test(id)){if(!cv[id])cv[id]=mk()
 global.document={getElementById:el,createElement:()=>el(''),querySelectorAll:()=>[],addEventListener(){},body:el(''),documentElement:{dataset:{}}};
 const store={};global.window={addEventListener(){},location:{href:''},innerHeight:800};global.localStorage={getItem:k=>store[k]??null,setItem:(k,v)=>{store[k]=v;},removeItem:k=>{delete store[k];}};global.fetch=async()=>({json:async()=>({})});global.alert=()=>{};
 let js=fs.readFileSync('app_extract.js','utf8');
-js+='\n;global.__S=S;global.__BB=BB;global.__TH=()=>TH;global.__theme=applyTheme;global.__new=newSheet;global.__demo=loadDemo;global.__place=place;global.__lint=lintSchematic;global.__bbClick=bbClick;global.__bbMode=bbMode;global.__bbRun=bbRun;global.__bbLint=bbLint;global.__bbXY=bbHoleXY;global.__fx=fxCards;global.__rep=buildReportHTML;global.__fwLint=fwLint;global.__fwSug=fwSuggest;global.__ser=serializeDesign;global.__load=loadDesign;global.__restore=restoreDesign;';
+js+='\n;global.__S=S;global.__BB=BB;global.__TH=()=>TH;global.__theme=applyTheme;global.__new=newSheet;global.__demo=loadDemo;global.__place=place;global.__lint=lintSchematic;global.__bbClick=bbClick;global.__bbMode=bbMode;global.__bbRun=bbRun;global.__bbLint=bbLint;global.__bbXY=bbHoleXY;global.__fx=fxCards;global.__rep=buildReportHTML;global.__fwLint=fwLint;global.__fwSug=fwSuggest;global.__ser=serializeDesign;global.__load=loadDesign;global.__restore=restoreDesign;global.__PARTS=PARTS;global.__pc=pinCoords;global.__bc=buildCircuit;global.__buildPCB=buildPCB;global.__PCB=PCB;global.__fpB=fpBounds;global.__nice=niceStep;';
 (0,eval)(js);const S=global.__S,BB=global.__BB;let pass=0,fail=0;const chk=(c,m,d)=>{console.log((c?'PASS':'FAIL')+'  '+m+(d?' - '+d:''));c?pass++:fail++;};
 
 // (1) theme palette switches
@@ -68,5 +68,28 @@ chk(ok,'fwLint runs (live syntax check)');
 // (8) implementation report
 const html=global.__rep();
 chk(/Implementation Report/.test(html)&&/Bill of materials/.test(html)&&/LED/.test(html),'report contains BOM + verification sections');
+
+// (9) MCUs: real pinouts, and a Pico's 3V3 pin powers an LED through the netlist
+const PARTS=global.__PARTS;
+chk(PARTS.PICO&&PARTS.PICO.pins===40&&PARTS.PICO.pinDefs[0].name==='GP0'&&PARTS.PICO.pinDefs[39].name==='VBUS','Pico has the real 40-pin pinout (GP0 … VBUS)');
+chk(PARTS.RPI40&&PARTS.RPI40.pinDefs[1].name==='5V'&&PARTS.MSP430&&PARTS.MSP430.pinDefs[0].name==='DVCC','Raspberry Pi header + MSP430 pinouts present');
+global.__new();
+const pico=global.__place('PICO',10,12),r2=global.__place('R',20,3,'330'),led2=global.__place('LED',26,3,'LEDred');
+const pin3v3=global.__pc(pico)[35],pinGnd=global.__pc(pico)[2],rp=global.__pc(r2),lp=global.__pc(led2);
+S.wires.push({x1:pin3v3.x,y1:pin3v3.y,x2:rp[0].x,y2:rp[0].y},{x1:rp[1].x,y1:rp[1].y,x2:lp[0].x,y2:lp[0].y},{x1:lp[1].x,y1:lp[1].y,x2:pinGnd.x,y2:pinGnd.y});
+const{ckt}=global.__bc(false);const op=ckt.dcOP();
+const vsrc=ckt.elements.filter(e=>e.type==='V');
+chk(vsrc.some(e=>e.value===3.3)&&vsrc.some(e=>e.value===0),'Pico emits 3V3 + GND sources into the netlist',vsrc.length+' sources');
+const ledNets=[S.nets.pinNet.get(led2.uid+':0'),S.nets.pinNet.get(led2.uid+':1')];
+const vLed=(op.V[ledNets[0]]??0)-(op.V[ledNets[1]]??0);
+chk(op.conv&&vLed>1.5&&vLed<2.2,'LED powered from the Pico 3V3 pin (real Vf drop)',vLed.toFixed(2)+'V');
+// (10) manual real-measurement footprint
+r2.fp={l:6.3,w:2.3,p:10};global.__buildPCB();
+const fpr=global.__PCB.fps.find(f=>f.ref===r2.ref);
+chk(fpr&&fpr.pads[0].dx===-5&&fpr.pads[1].dx===5,'manual 10mm pitch → pads at ±5mm',fpr&&fpr.pads.map(p=>p.dx).join(','));
+const b2=global.__fpB(fpr);
+chk(Math.abs(b2.minx+3.15)<0.01&&Math.abs(b2.maxy-1.15)<0.01,'body bounds follow measured 6.3×2.3mm',JSON.stringify(b2));
+// (11) professional scope: 1-2-5 tick engine
+chk(global.__nice(8,8)===1&&global.__nice(0.05,6)===0.01&&global.__nice(33,6)===5,'niceStep picks 1-2-5 ticks',[global.__nice(8,8),global.__nice(0.05,6),global.__nice(33,6)].join(','));
 
 console.log('\n'+pass+' passed, '+fail+' failed');process.exit(fail?1:0);
