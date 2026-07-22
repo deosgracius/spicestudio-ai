@@ -390,7 +390,7 @@ button{font-family:inherit}
       <button onclick="fwSuggest()" title="Generate a sketch that matches the circuit on the schematic/breadboard">⚙ Suggest from circuit</button>
       <select id="fw-ex" onchange="fwLoadExample(this.value)" title="Load an example sketch">
         <option value="">Examples…</option><option value="blink">Blink</option><option value="sos">SOS beacon</option>
-        <option value="counter">Serial counter</option><option value="chaser">Pin chaser</option>
+        <option value="counter">Serial counter</option><option value="chaser">Pin chaser</option><option value="sense">Sense the circuit</option>
       </select>
       <span class="stat">speed <select id="fw-speed" onchange="FW.speed=+this.value"><option value="1">1×</option><option value="5">5×</option><option value="20">20×</option></select></span>
       <span class="stat" id="fw-status" style="color:var(--dim)">idle</span>
@@ -7494,10 +7494,12 @@ function mcuNet(c,net,ckt){const P=PARTS[c.type];const done={};
     if(v===null)return;const nn=net(i),k=nn+'@'+v;if(done[k])return;done[k]=1;
     ckt.add({type:'V',nodes:[nn,'0'],value:v,ac:0});});
   if(typeof FW!=='undefined'&&FW.pins)Object.entries(FW.pins).forEach(([p,val])=>{
+    if(FW.modes&&(FW.modes[p]===0||FW.modes[p]===2))return;   // INPUT / INPUT_PULLUP: high-Z, the circuit drives the pin
     const gn=mcuGpioName(c.type,+p);if(!gn)return;
     const i=P.pinDefs.findIndex(pd=>pd.name===gn);if(i<0)return;
     const nn=net(i),k=nn+'@gpio';if(done[k])return;done[k]=1;
-    ckt.add({type:'V',nodes:[nn,'0'],value:val?3.3:0,ac:0});});}
+    const lvl=(FW.duty&&FW.duty[p]!=null)?3.3*FW.duty[p]/255:(val?3.3:0);   // analogWrite = DC average of the PWM
+    ckt.add({type:'V',nodes:[nn,'0'],value:lvl,ac:0});});}
 const PARTS={
   R:{cat:'Passives',label:'Resistor',def:'1k',pins:2,draw:'res',color:'#c87137',
      net:(c,net,ckt)=>ckt.add({type:'R',nodes:[net(0),net(1)],value:parseVal(c.value)})},
@@ -8928,7 +8930,8 @@ const FW_EXAMPLES={
   blink:`// Blink - the hardware hello world\nvoid setup() {\n  pinMode(13, OUTPUT);\n  Serial.begin(9600);\n}\n\nvoid loop() {\n  digitalWrite(13, HIGH);\n  Serial.println("LED on");\n  delay(500);\n  digitalWrite(13, LOW);\n  Serial.println("LED off");\n  delay(500);\n}`,
   sos:`// SOS beacon on pin 13 (dot=150ms, dash=450ms)\nvoid setup() {\n  pinMode(13, OUTPUT);\n}\n\nvoid pulse(int ms) {\n  digitalWrite(13, HIGH);\n  delay(ms);\n  digitalWrite(13, LOW);\n  delay(150);\n}\n\nvoid loop() {\n  pulse(150); pulse(150); pulse(150);   // S\n  delay(300);\n  pulse(450); pulse(450); pulse(450);   // O\n  delay(300);\n  pulse(150); pulse(150); pulse(150);   // S\n  delay(1200);\n}`,
   counter:`// Serial counter - watch the monitor\nint n = 0;\nvoid setup() {\n  Serial.begin(9600);\n}\n\nvoid loop() {\n  n = n + 1;\n  Serial.print("count = ");\n  Serial.println(n);\n  delay(400);\n}`,
-  chaser:`// Pin chaser - walks a HIGH across D8-D13\nvoid setup() {\n  for (int p = 8; p <= 13; p++) pinMode(p, OUTPUT);\n}\n\nvoid loop() {\n  for (int p = 8; p <= 13; p++) {\n    digitalWrite(p, HIGH);\n    delay(120);\n    digitalWrite(p, LOW);\n  }\n}`};
+  chaser:`// Pin chaser - walks a HIGH across D8-D13\nvoid setup() {\n  for (int p = 8; p <= 13; p++) pinMode(p, OUTPUT);\n}\n\nvoid loop() {\n  for (int p = 8; p <= 13; p++) {\n    digitalWrite(p, HIGH);\n    delay(120);\n    digitalWrite(p, LOW);\n  }\n}`,
+  sense:`// Sense the circuit: reads the SOLVED voltage at an MCU pin on your schematic.\n// Place a Pico, wire a divider (3V3 -> R -> GP26 -> R -> GND), then Run.\nvoid setup() {\n  pinMode(26, INPUT);\n  Serial.begin(9600);\n}\n\nvoid loop() {\n  int raw = analogRead(26);\n  Serial.print("GP26 = ");\n  Serial.print(raw);\n  Serial.print(" / 1023  (");\n  Serial.print(raw * 3.3 / 1023);\n  Serial.println(" V)");\n  delay(600);\n}`};
 function fwLoadExample(k){if(!k||!FW_EXAMPLES[k])return;if(typeof fwStop==='function'&&FW.running)fwStop();
   const ed=document.getElementById('fw-code');if(ed)ed.value=FW_EXAMPLES[k];
   const sel=document.getElementById('fw-ex');if(sel)sel.value='';
@@ -8938,15 +8941,31 @@ function fwLoadExample(k){if(!k||!FW_EXAMPLES[k])return;if(typeof fwStop==='func
   ed.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();const s=ed.selectionStart,en=ed.selectionEnd;
     ed.value=ed.value.slice(0,s)+'  '+ed.value.slice(en);ed.selectionStart=ed.selectionEnd=s+2;}});
   let t=null;ed.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>{if(!FW.running)fwLint();},400);});})();
-function fwDW(p,v){FW.pins[p]=v?1:0;if(p===13)fwLed();fwRenderPins();fwDriveCircuit();}
+function fwDW(p,v){FW.pins[p]=v?1:0;if(FW.duty)delete FW.duty[p];if(p===13)fwLed();fwRenderPins();_qdcDirty=true;fwDriveCircuit();}
+function fwAW(p,v){FW.duty=FW.duty||{};FW.duty[p]=Math.max(0,Math.min(255,+v||0));FW.pins[p]=v>127?1:0;
+  if(p===13)fwLed();fwRenderPins();_qdcDirty=true;fwDriveCircuit();}   // PWM as its DC average level
 /* ---- firmware -> circuit coupling: when the sketch writes a GPIO that exists on an MCU
    on the sheet, re-solve the schematic so LEDs blink and node voltages follow the code ---- */
-let _qdcLast=0;
+let _qdcLast=0,_qdcDirty=false;
 function fwDriveCircuit(){
   if(!S.comps.some(c=>['PICO','RPI40','MSP430'].includes(c.type)))return;
   const now=Date.now();if(now-_qdcLast<90)return;_qdcLast=now;
   try{const{ckt}=buildCircuit(false);const op=ckt.dcOP();
-    S.sim={dc:op.V};S.flowData=null;draw();}catch(_){}}
+    S.sim={dc:op.V};S.flowData=null;_qdcDirty=false;draw();}catch(_){}}
+/* ---- circuit -> firmware readback: the solved voltage at the MCU pin the sketch is reading.
+   Forces a fresh solve if writes happened since the last one (bypasses the redraw throttle). ---- */
+function fwReadNode(p){
+  const mcu=S.comps.find(c=>['PICO','RPI40','MSP430'].includes(c.type));if(!mcu)return null;
+  const gn=mcuGpioName(mcu.type,+p);if(!gn)return null;
+  const i=PARTS[mcu.type].pinDefs.findIndex(pd=>pd.name===gn);if(i<0)return null;
+  if(_qdcDirty||!S.sim||!S.nets){try{const{ckt}=buildCircuit(false);const op=ckt.dcOP();S.sim={dc:op.V};_qdcDirty=false;}catch(_){return null;}}
+  const net=S.nets&&S.nets.pinNet.get(mcu.uid+':'+i);if(!net)return null;
+  if(net==='0')return 0;
+  const V=S.sim.dc||S.sim.finalV;const v=V&&V[net];
+  // an unwired pin shares its auto-net with nothing: treat as floating, not 0V
+  let members=0;S.nets.pinNet.forEach(nm=>{if(nm===net)members++;});
+  if(members<2)return null;
+  return v===undefined?null:v;}
 // transpile Arduino C-ish sketch → runnable async JS (handles the common subset: types, delay, setup/loop)
 function fwTranspile(src){
   let c=src.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/[^\n]*/g,'');   // comments
@@ -9005,8 +9024,11 @@ async function fwStart(){
   const env={
     HIGH:1,LOW:0,INPUT:0,OUTPUT:1,INPUT_PULLUP:2,LED_BUILTIN:13,
     pinMode:(p,m)=>{FW.modes[p]=m;},digitalWrite:(p,v)=>fwDW(p,v),
-    digitalRead:p=>FW.pins[p]||0,analogWrite:(p,v)=>{FW.pins[p]=v>127?1:0;if(p===13)fwLed();fwRenderPins();},
-    analogRead:p=>512,millis:()=>Math.floor(FW.virtT),micros:()=>Math.floor(FW.virtT*1000),
+    // reads SENSE the real circuit: the mapped GPIO net's solved voltage comes back into the sketch
+    digitalRead:p=>{const v=fwReadNode(p);if(v==null)return FW.modes[p]===2?1:(FW.pins[p]||0);return v>1.65?1:0;},
+    analogRead:p=>{const v=fwReadNode(p);return v==null?512:Math.max(0,Math.min(1023,Math.round(v/3.3*1023)));},
+    analogWrite:(p,v)=>fwAW(p,v),
+    millis:()=>Math.floor(FW.virtT),micros:()=>Math.floor(FW.virtT*1000),
     Serial:{begin(){},print:s=>fwSerial(s,false),println:s=>fwSerial(s===undefined?'':s,true)},
     map:(x,a,b,c,d)=>((x-a)*(d-c)/(b-a)+c),constrain:(x,a,b)=>Math.min(b,Math.max(a,x)),
     __delay:delay,__delayus:us=>delay(us/1000),

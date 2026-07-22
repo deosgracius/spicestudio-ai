@@ -6,7 +6,7 @@ const cv={};function el(id){if(id&&/canvas|sch/.test(id)){if(!cv[id])cv[id]=mk()
 global.document={getElementById:el,createElement:()=>el(''),querySelectorAll:()=>[],addEventListener(){},body:el(''),documentElement:{dataset:{}}};
 const store={};global.window={addEventListener(){},location:{href:''},innerHeight:800};global.localStorage={getItem:k=>store[k]??null,setItem:(k,v)=>{store[k]=v;},removeItem:k=>{delete store[k];}};global.fetch=async()=>({json:async()=>({})});global.alert=()=>{};
 let js=fs.readFileSync('app_extract.js','utf8');
-js+='\n;global.__S=S;global.__BB=BB;global.__TH=()=>TH;global.__theme=applyTheme;global.__new=newSheet;global.__demo=loadDemo;global.__place=place;global.__lint=lintSchematic;global.__bbClick=bbClick;global.__bbMode=bbMode;global.__bbRun=bbRun;global.__bbLint=bbLint;global.__bbXY=bbHoleXY;global.__fx=fxCards;global.__rep=buildReportHTML;global.__fwLint=fwLint;global.__fwSug=fwSuggest;global.__ser=serializeDesign;global.__load=loadDesign;global.__restore=restoreDesign;global.__PARTS=PARTS;global.__pc=pinCoords;global.__bc=buildCircuit;global.__buildPCB=buildPCB;global.__PCB=PCB;global.__fpB=fpBounds;global.__nice=niceStep;global.__FW=FW;global.__findPin=fwFindLedPin;';
+js+='\n;global.__S=S;global.__BB=BB;global.__TH=()=>TH;global.__theme=applyTheme;global.__new=newSheet;global.__demo=loadDemo;global.__place=place;global.__lint=lintSchematic;global.__bbClick=bbClick;global.__bbMode=bbMode;global.__bbRun=bbRun;global.__bbLint=bbLint;global.__bbXY=bbHoleXY;global.__fx=fxCards;global.__rep=buildReportHTML;global.__fwLint=fwLint;global.__fwSug=fwSuggest;global.__ser=serializeDesign;global.__load=loadDesign;global.__restore=restoreDesign;global.__PARTS=PARTS;global.__pc=pinCoords;global.__bc=buildCircuit;global.__buildPCB=buildPCB;global.__PCB=PCB;global.__fpB=fpBounds;global.__nice=niceStep;global.__FW=FW;global.__findPin=fwFindLedPin;global.__readNode=fwReadNode;';
 (0,eval)(js);const S=global.__S,BB=global.__BB;let pass=0,fail=0;const chk=(c,m,d)=>{console.log((c?'PASS':'FAIL')+'  '+m+(d?' - '+d:''));c?pass++:fail++;};
 
 // (1) theme palette switches
@@ -110,6 +110,30 @@ chk(Math.abs(vLo)<0.2,'GP0 LOW turns it off',vLo.toFixed(3)+'V');
 const found=global.__findPin();
 chk(found&&found.pin===0&&found.via===r3,'fwFindLedPin traces LED -> series R -> GP0',found&&('GP'+found.pin+' via '+found.via.ref));
 FW.pins={};
+// (12) CIRCUIT -> FIRMWARE readback: analogRead/digitalRead sense the real solved voltage
+global.__new();FW.pins={};FW.modes={};FW.duty={};
+const pico3=global.__place('PICO',10,12),ra=global.__place('R',19,7,'10k'),rb=global.__place('R',24,12,'20k');
+global.__place('GND',25,16);
+const p3v3=global.__pc(pico3)[35],gp26=global.__pc(pico3)[30],rap=global.__pc(ra),rbp=global.__pc(rb);
+S.wires.push({x1:p3v3.x,y1:p3v3.y,x2:rap[0].x,y2:rap[0].y},          // 3V3 -> R1
+  {x1:rap[1].x,y1:rap[1].y,x2:rap[1].x,y2:12},{x1:rap[1].x,y1:12,x2:gp26.x,y2:gp26.y},   // R1 -> GP26 node
+  {x1:rap[1].x,y1:12,x2:rbp[0].x,y2:rbp[0].y},                        // node -> R2
+  {x1:rbp[1].x,y1:rbp[1].y,x2:rbp[1].x,y2:16});                       // R2 -> GND
+invalidate();
+const vSense=global.__readNode(26);
+chk(vSense!=null&&Math.abs(vSense-2.2)<0.02,'analog sense: GP26 reads the divider voltage (3.3·20k/30k)',vSense&&vSense.toFixed(3)+'V');
+chk(vSense>1.65,'…which digitalRead reports as HIGH');
+chk(Math.round(vSense/3.3*1023)===682,'…and analogRead scales to 682/1023');
+chk(global.__readNode(15)==null,'an unwired GPIO reads as floating (null), not 0V');
+// (13) analogWrite duty -> scaled level; INPUT mode -> high-Z
+global.__new();global.__place('PICO',10,12);
+FW.pins={5:1};FW.duty={5:200};
+let els=global.__bc(false).ckt.elements.filter(e=>e.type==='V'&&Math.abs(e.value-3.3*200/255)<1e-9);
+chk(els.length===1,'analogWrite(5,200) drives GP5 at the PWM average (2.588V)');
+FW.modes={5:0};   // pinMode(5, INPUT)
+els=global.__bc(false).ckt.elements.filter(e=>e.type==='V'&&Math.abs(e.value-3.3*200/255)<1e-9);
+chk(els.length===0,'pinMode(5, INPUT) makes the pin high-Z (no source emitted)');
+FW.pins={};FW.modes={};FW.duty={};
 // (11) professional scope: 1-2-5 tick engine
 chk(global.__nice(8,8)===1&&global.__nice(0.05,6)===0.01&&global.__nice(33,6)===5,'niceStep picks 1-2-5 ticks',[global.__nice(8,8),global.__nice(0.05,6),global.__nice(33,6)].join(','));
 
